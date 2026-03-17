@@ -1,5 +1,5 @@
 from django.contrib import admin
-from .models import Vehicle, FeeRule, ParkingLog
+from .models import Vehicle, FeeRule, ParkingLog, VehicleFace
 from .admin_site import custom_admin_site
 
 class VehicleAdmin(admin.ModelAdmin):
@@ -20,6 +20,11 @@ class ParkingLogAdmin(admin.ModelAdmin):
     list_filter   = ('status',)
     autocomplete_fields = ('user', 'vehicle', 'fee_rule')
 
+class VehicleFaceAdmin(admin.ModelAdmin):
+    list_display  = ('id', 'vehicle', 'owner_name', 'relationship', 'face_img', 'face_vector', 'is_default', 'parent')
+    search_fields = ('id', 'owner_name')
+
 custom_admin_site.register(Vehicle, VehicleAdmin)
 custom_admin_site.register(FeeRule, FeeRuleAdmin)
 custom_admin_site.register(ParkingLog, ParkingLogAdmin)
+custom_admin_site.register(VehicleFace, VehicleFaceAdmin)

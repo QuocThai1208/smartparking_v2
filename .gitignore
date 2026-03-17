@@ -29,6 +29,12 @@ ENV/
 env/
 No_OEBPS/
 
+
+venv_311/
+.venv_311/
+ENV_311/
+env_311/
+
 # --- Django ---
 *.log
 local_settings.py

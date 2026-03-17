@@ -45,6 +45,19 @@ class Vehicle(BaseModel):
         return self.license_plate
 
 
+class VehicleFace(BaseModel):
+    vehicle = models.ForeignKey(Vehicle, on_delete=models.CASCADE, related_name='faces')
+    owner_name = models.CharField(max_length=100, verbose_name="Tên người lái")
+    relationship = models.CharField(max_length=10, verbose_name="Quan hệ với chủ xe")
+    face_img = CloudinaryField()
+    face_vector = models.JSONField(verbose_name="Vector đặc trưng")
+    is_default = models.BooleanField(default=False)
+    parent = models.ForeignKey('self', null=True, blank=True, related_name='children', on_delete=models.SET_NULL)
+
+    class Meta:
+        ordering = ['-is_default']
+
+
 class ParkingLog(BaseModel):
     user = models.ForeignKey(User, on_delete=models.CASCADE, related_name="parking_logs")
     vehicle = models.ForeignKey(Vehicle, on_delete=models.CASCADE, related_name="parking_logs")

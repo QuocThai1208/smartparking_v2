@@ -2,7 +2,7 @@ from typing import Optional
 
 from datetime import date
 
-from rest_framework import viewsets, generics, permissions, status
+from rest_framework import viewsets, generics, permissions, status, mixins
 from rest_framework.decorators import action
 from rest_framework.exceptions import ValidationError
 from rest_framework.response import Response
@@ -12,6 +12,7 @@ from .services.vehicle_service import VehicleService
 from .serializers.vehicle_serializers import VehicleSerializer
 from .serializers.fee_role_serializers import FeeRuleSerializer
 from .serializers.parking_log_serializers import ParkingLogSerializer
+from .serializers.vehicle_face_serializers import FaceRegistrationInputSerializer, VehicleFaceSerializer
 from ..users import perms
 from ..users.models import UserRole
 from ..finance.services.finance_service import FinanceService
@@ -32,6 +33,16 @@ class VehicleViewSet(viewsets.ViewSet, generics.ListCreateAPIView, generics.Upda
     def vehicle_stats(self, request):
         user = request.user
         return Response(VehicleService.get_user_vehicle_stats(user), status=status.HTTP_200_OK)
+
+
+class VehicleFaceViewSet(viewsets.GenericViewSet, mixins.CreateModelMixin):
+    serializer_class = FaceRegistrationInputSerializer
+
+    def create(self, request, *args, **kwargs):
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)  # Tự động trả về 400 nếu lỗi
+        face_record = serializer.save()
+        return Response(serializer.data, status=status.HTTP_201_CREATED)
 
 
 class FeeRoleViewSet(viewsets.ViewSet, generics.ListAPIView, generics.UpdateAPIView,
