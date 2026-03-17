@@ -9,7 +9,6 @@ from rest_framework_simplejwt.views import TokenObtainPairView
 
 from .models import User
 from .serializers.token_serializers import TokenSerializer, RegisterSerializer
-from ..finance.serializers import wallet_serializers
 from .serializers import user_serializers
 from ..finance.services.finance_service import FinanceService
 

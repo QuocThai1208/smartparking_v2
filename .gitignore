@@ -57,3 +57,10 @@ docker-compose.yml
 # --- Hệ điều hành ---
 .DS_Store
 Thumbs.db
+
+# --- AI Models ---
+*.pt
+*.pth
+*.onnx
+*.weights
+!engines/weights/yolo11n_plate.pt
