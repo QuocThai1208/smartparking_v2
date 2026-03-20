@@ -91,11 +91,11 @@ else:
     DATABASES = {
         'default': {
             'ENGINE': 'django.db.backends.mysql',
-            'NAME': config('DB_NAME'),
-            'USER': config('DB_USER'),
-            'PASSWORD': config('DB_PASS'),
-            'HOST': config('DB_HOST'),
-            'PORT': config('DB_PORT'),
+            'NAME': config('DB_NAME', default=None) ,
+            'USER': config('DB_USER', default=None),
+            'PASSWORD': config('DB_PASS', default=None),
+            'HOST': config('DB_HOST', default=None),
+            'PORT': config('DB_PORT', default=None),
             'OPTIONS': {
                 'init_command': "SET sql_mode='STRICT_TRANS_TABLES'",
                 'charset': 'utf8mb4',
