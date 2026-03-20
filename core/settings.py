@@ -11,6 +11,9 @@ ALLOWED_HOSTS = []
 
 # Application definition
 
+FACE_SERVICE_URL = "http://127.0.0.1:8002/api/v1/extract-face"
+PLATE_SERVICE_URL = "http://127.0.0.1:8001/api/v1/predict-vehicle"
+
 INSTALLED_APPS = [
     'django.contrib.admin',
     'django.contrib.auth',
@@ -122,11 +125,15 @@ sys.path.insert(0, os.path.join(BASE_DIR, 'apps'))
 # Cấu hình Cloudinary
 from decouple import config
 
-CLOUDINARY_STORAGE = {
-    'CLOUD_NAME': config('CLOUDINARY_NAME'),
-    'API_KEY': config('CLOUDINARY_API_KEY'),
-    'API_SECRET': config('CLOUDINARY_API_SECRET'),
-}
+import cloudinary
+
+# Ép cấu hình trực tiếp vào SDK của Cloudinary
+cloudinary.config(
+  cloud_name = config('CLOUDINARY_NAME'),
+  api_key = config('CLOUDINARY_API_KEY'),
+  api_secret = config('CLOUDINARY_API_SECRET'),
+  secure = True
+)
 
 DEFAULT_FILE_STORAGE = 'cloudinary_storage.storage.MediaCloudinaryStorage'
 

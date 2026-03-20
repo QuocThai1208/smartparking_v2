@@ -1,51 +1,39 @@
-import os
-from datetime import datetime
-from django.conf import settings
-from django.core.files.storage import default_storage
 from rest_framework import serializers
 from ..models import Vehicle
-# from ..services.yolo_detection import detect_vehicle
+from ..services.vehicle_service import VehicleService
 
+
+# Serializer dùng để hiển thị (Dùng cho GET)
 class VehicleSerializer(serializers.ModelSerializer):
-    user = serializers.SerializerMethodField(read_only=True)
+    user_name = serializers.CharField(source='user.full_name', read_only=True)
+
+    class Meta:
+        model = Vehicle
+        fields = ['id', 'user_name', 'name', 'license_plate', 'type', 'image', 'is_approved', 'color', 'brand']
 
     def to_representation(self, instance):
         data = super().to_representation(instance)
         data['image'] = instance.image.url if instance.image else ''
         return data
 
+
+# Serializer dùng để tạo mới (Dùng cho POST)
+class VehicleCreateSerializer(serializers.ModelSerializer):
+    image_front = serializers.ImageField(write_only=True)
+    image_plate = serializers.ImageField(write_only=True)
+
     class Meta:
         model = Vehicle
-        fields = ['id', 'user', 'name', 'license_plate', 'vehicle_type', 'image', 'is_approved']
-        extra_kwargs = {
-            'user': {'read_only': True },
-            'vehicle_type': {'read_only': True }
-        }
-
-    def get_user(self, obj):
-        return obj.user.full_name
+        fields = ['name', 'image_front', 'image_plate']
 
     def create(self, validated_data):
-        user = self.context['request'].user
-        image_file = validated_data.get('image')
+        request = self.context.get('request')
+        user = request.user
 
-        timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-        ext = os.path.splitext(image_file.name)[1]  # lấy đuôi file
-        new_filename = f"vehicle_{timestamp}{ext}"
-        upload_dir = os.path.join(settings.MEDIA_ROOT, "vehicle")
-        os.makedirs(upload_dir, exist_ok=True)
-        save_path = os.path.join(upload_dir, new_filename)
-        default_storage.save(save_path, image_file)
-
-        try:
-            # vehicle_type = detect_vehicle(save_path)
-            vehicle_type = 0
-            if not vehicle_type:
-                raise serializers.ValidationError({'image': 'Không nhận diện được loại xe'})
-
-            validated_data['user'] = user
-            validated_data['vehicle_type'] = vehicle_type
-            return super().create(validated_data)
-        finally:
-            if os.path.exists(save_path):
-                os.remove(save_path)
+        vehicle = VehicleService.create_vehicle(
+            user=user,
+            name=validated_data['name'],
+            image_front=validated_data['image_front'],
+            image_plate=validated_data['image_plate'],
+        )
+        return vehicle

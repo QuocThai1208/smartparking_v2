@@ -9,25 +9,35 @@ from rest_framework.response import Response
 
 from .models import Vehicle, FeeRule, ParkingLog, ParkingStatus
 from .services.vehicle_service import VehicleService
-from .serializers.vehicle_serializers import VehicleSerializer
+from .serializers.vehicle_serializers import VehicleSerializer, VehicleCreateSerializer
 from .serializers.fee_role_serializers import FeeRuleSerializer
 from .serializers.parking_log_serializers import ParkingLogSerializer
 from .serializers.vehicle_face_serializers import FaceRegistrationInputSerializer, VehicleFaceSerializer
+from .serializers.parking_serializers import CheckInSerializer, CheckOutSerializer, ParkingBaseSerializer
 from ..users import perms
 from ..users.models import UserRole
 from ..finance.services.finance_service import FinanceService
+from .services.parking_service import ParkingService
 
 
-class VehicleViewSet(viewsets.ViewSet, generics.ListCreateAPIView, generics.UpdateAPIView, generics.DestroyAPIView):
-    serializer_class = VehicleSerializer
-    permission_classes = [perms.IsVehicleOwner]
-
+class VehicleViewSet(viewsets.ModelViewSet):
     def get_queryset(self):
-        user = self.request.user
-        if user.is_anonymous:
+        if self.request.user.is_anonymous:
             return Vehicle.objects.none()
+        return Vehicle.objects.filter(user=self.request.user)
 
-        return Vehicle.objects.filter(user=user)
+    def get_serializer_class(self):
+        if self.action == 'create':
+            return VehicleCreateSerializer
+        return VehicleSerializer
+
+    def get_permissions(self):
+        if self.action == 'create':
+            return [permissions.IsAuthenticated()]
+        return [perms.IsVehicleOwner]
+
+    def perform_create(self, serializer):
+        serializer.save()
 
     @action(methods=['get'], detail=False, url_path='stats', permission_classes=[permissions.IsAuthenticated])
     def vehicle_stats(self, request):
@@ -88,6 +98,42 @@ class ParkingLogViewSet(viewsets.ViewSet, generics.ListAPIView):
         now = date.today()
         count_today = ParkingLog.objects.filter(created_date__date=now).count()
         return Response(count_today, status=status.HTTP_200_OK)
+
+
+class ParkingViewSet(viewsets.GenericViewSet):
+    permission_classes = [permissions.AllowAny]
+    def get_serializer_class(self):
+        if self.action == 'check_in':
+            return CheckInSerializer
+        if self.action == 'check_out':
+            return CheckOutSerializer
+        return ParkingBaseSerializer
+
+    @action(detail=False, methods=["post"], url_path="check-in")
+    def check_in(self, request):
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        success, msg = ParkingService.check_in(**serializer.validated_data)
+
+        res_status = status.HTTP_200_OK if success else status.HTTP_400_BAD_REQUEST
+        return Response({
+            "status": "success" if success else "error",
+            "result": msg
+        }, status=res_status)
+
+    @action(detail=False, methods=['post'], url_path='check-out')
+    def check_out(self, request):
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        success, msg = ParkingService.check_out(**serializer.validated_data)
+
+        res_status = status.HTTP_200_OK if success else status.HTTP_400_BAD_REQUEST
+        return Response({
+            "status": "success" if success else "error",
+            "result": msg
+        }, status=res_status)
 
 
 def _to_int_or_none(value: Optional[str]) -> Optional[int]:

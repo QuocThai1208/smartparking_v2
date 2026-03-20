@@ -3,7 +3,7 @@ from .models import Vehicle, FeeRule, ParkingLog, VehicleFace
 from .admin_site import custom_admin_site
 
 class VehicleAdmin(admin.ModelAdmin):
-    list_display  = ('license_plate', 'vehicle_type', 'name', 'user', 'is_approved', 'image')
+    list_display  = ('id', 'license_plate', 'type', 'color', 'brand', 'name', 'user', 'is_approved', 'image')
     search_fields = ('license_plate', 'name', 'user__full_name')
     list_filter   = ('is_approved',)
     autocomplete_fields = ('user',)
@@ -15,7 +15,7 @@ class FeeRuleAdmin(admin.ModelAdmin):
     ordering      = ('-effective_from',)
 
 class ParkingLogAdmin(admin.ModelAdmin):
-    list_display  = ('id', 'user', 'vehicle', 'check_in', 'check_out', 'duration_minutes', 'fee', 'status')
+    list_display  = ('id', 'user', 'vehicle', 'vehicle_face', 'check_in', 'check_out', 'duration_minutes', 'fee', 'status')
     search_fields = ('id', 'user__full_name', 'vehicle__license_plate')
     list_filter   = ('status',)
     autocomplete_fields = ('user', 'vehicle', 'fee_rule')

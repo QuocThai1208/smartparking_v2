@@ -11,6 +11,8 @@ class ParkingStatus(models.TextChoices):
 class FeeType(models.TextChoices):
     MOTORCYCLE = "MOTORCYCLE", "Xe máy"
     CAR = "CAR", "Ô tô"
+    TRUCK = "TRUCK", "Xe tải"
+    BUS = "BUS", "Xe bus"
 
 
 class BaseModel(models.Model):
@@ -38,8 +40,10 @@ class Vehicle(BaseModel):
     name = models.CharField(max_length=255, help_text="Tên/đời xe – ví dụ: Yamaha Sirius")
     license_plate = models.CharField(max_length=15, unique=True, help_text="Biển số xe")
     image = CloudinaryField(null=True, blank=True, help_text="Ảnh xe")
-    vehicle_type = models.CharField(max_length=20, choices=FeeType.choices)
     is_approved = models.BooleanField(default=False, help_text="Đã được admin duyệt chưa")
+    type = models.CharField(max_length=20, choices=FeeType.choices)
+    color = models.CharField(max_length=20, null=True, blank=True)  # Ví dụ: "Red", "Black"
+    brand = models.CharField(max_length=50, null=True, blank=True)  # Ví dụ: "Honda"
 
     def __str__(self):
         return self.license_plate
@@ -57,9 +61,13 @@ class VehicleFace(BaseModel):
     class Meta:
         ordering = ['-is_default']
 
+    def __str__(self):
+        return f"{self.vehicle.name} - {self.owner_name}"
+
 
 class ParkingLog(BaseModel):
     user = models.ForeignKey(User, on_delete=models.CASCADE, related_name="parking_logs")
+    vehicle_face = models.ForeignKey(VehicleFace, on_delete=models.CASCADE, related_name="parking_logs")
     vehicle = models.ForeignKey(Vehicle, on_delete=models.CASCADE, related_name="parking_logs")
     fee_rule = models.ForeignKey(FeeRule, on_delete=models.CASCADE, related_name="parking_logs")
     check_in = models.DateTimeField(default=timezone.now)

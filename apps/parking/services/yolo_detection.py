@@ -3,8 +3,8 @@
 # from collections import defaultdict
 #
 # # CẤU HÌNH
-# MODEL_PLATE_PATH = "D:/AppParking/Parkingapis/parkingapp/parking/runs/detect/train_bienso/weights/best.pt"
-# MODEL_CHAR_PATH = "D:/AppParking/Parkingapis/parkingapp/parking/runs/detect/train_ocr/weights/best.pt"
+# MODEL_PLATE_PATH = "D:/AppParking/Parkingapis/parkingapp/parking/runs/detect/train_bienso/weights/yolo11n_cls_color_vehicle_v1.pt"
+# MODEL_CHAR_PATH = "D:/AppParking/Parkingapis/parkingapp/parking/runs/detect/train_ocr/weights/yolo11n_cls_color_vehicle_v1.pt"
 # vehicle_model = YOLO('yolov8n.pt')
 # VEHICLE_CLASSES = ['car', 'motorcycle', 'bus', 'truck']
 # LINE_THRESHOLD = 50

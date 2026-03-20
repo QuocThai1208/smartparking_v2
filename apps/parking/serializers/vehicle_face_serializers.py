@@ -12,6 +12,7 @@ class VehicleFaceSerializer(serializers.ModelSerializer):
 class FaceRegistrationInputSerializer(serializers.Serializer):
     vehicle_id = serializers.IntegerField(help_text="ID của xe cần đăng ký mặt")
     owner_name = serializers.CharField(max_length=100, help_text="Tên người lái")
+    relationship = serializers.CharField(max_length=100, help_text="Tên người lái")
     face_img = serializers.ImageField(help_text="Ảnh chụp khuôn mặt")
     is_default = serializers.BooleanField(default=False)
 
@@ -22,5 +23,5 @@ class FaceRegistrationInputSerializer(serializers.Serializer):
     #Kết quả trả về
     def to_representation(self, instance):
         data = super().to_representation(instance)
-        data['face_img'] = instance.image.url if instance.image else ''
+        data['face_img'] = instance.face_img.url if instance.face_img else ''
         return VehicleFaceSerializer(data).data

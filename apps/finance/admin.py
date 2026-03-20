@@ -10,7 +10,7 @@ class PaymentAdmin(admin.ModelAdmin):
     autocomplete_fields = ('user',)
 
 class WalletAdmin(admin.ModelAdmin):
-    ist_display = ('user', 'balance', 'active')
+    list_display = ('user', 'balance', 'active')
     search_fields = ('user__username',)
 
 

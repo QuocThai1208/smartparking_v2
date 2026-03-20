@@ -14,8 +14,7 @@ from .services.finance_service import FinanceService
 from ..users.models import UserRole
 from ..users import perms
 
-from ..parking.services.parking_service import ParkingService
-from ..parking.services.handle_parking_service import HandleParkingService
+from ..parking.services.parking_log_service import ParkingLogService, ParkingLogStatsService
 
 
 
@@ -146,7 +145,7 @@ class StatsViewSet(viewsets.ViewSet):
             raise ValidationError("ngày, tháng, năm phải là số dương")
 
         df, dt = FinanceService.create_df_dt(day, month, year)
-        count_parking_log = ParkingService.get_total_count_parking(regimen, user, df, dt)
+        count_parking_log = ParkingLogStatsService.get_total_count_parking(user, df, dt)
         payload = {"countParkingLog": count_parking_log}
 
         if df and dt and df == dt:
@@ -161,7 +160,6 @@ class StatsViewSet(viewsets.ViewSet):
             permission_classes=[permissions.IsAuthenticated])
     def get_total_time_parking_log(self, request):
         user = self.request.user
-        regimen = self.request.query_params.get("regimen")
         try:
             day = _to_int_or_none(self.request.query_params.get("day"))
             month = _to_int_or_none(self.request.query_params.get("month"))
@@ -170,7 +168,7 @@ class StatsViewSet(viewsets.ViewSet):
             raise ValidationError("ngày, tháng, năm phải là số dương")
 
         df, dt = FinanceService.create_df_dt(day, month, year)
-        total_time = ParkingService.get_total_time_parking(regimen, user, df, dt)
+        total_time = ParkingLogStatsService.get_total_time_parking(user, df, dt)
         payload = {"totalTime": total_time}
 
         if df and dt and df == dt:
@@ -184,7 +182,7 @@ class StatsViewSet(viewsets.ViewSet):
     @action(methods=['get'], detail=False, url_path='total-customer',
             permission_classes=[perms.IsStaffOrAdmin])
     def get_total_customer(self, request):
-        payload = HandleParkingService.get_total_customer()
+        payload = ParkingLogStatsService.get_total_customer()
         return Response(payload, status=status.HTTP_200_OK)
 
 
