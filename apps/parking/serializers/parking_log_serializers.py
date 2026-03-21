@@ -34,3 +34,35 @@ class ParkingLogSerializer(serializers.ModelSerializer):
 
     def get_check_out(self, obj):
         return obj.check_out.strftime("%H:%M:%S %d/%m/%Y")
+
+
+class LogHistoryAdminSerializer(serializers.ModelSerializer):
+    check_in = serializers.SerializerMethodField()
+    owner_name = serializers.CharField(source='vehicle_face.owner_name', read_only=True)
+    plate = serializers.CharField(source='vehicle.license_plate', read_only=True)
+
+    class Meta:
+        model = ParkingLog
+        fields = ['id', 'plate', 'check_in', 'owner_name' ]
+
+    def get_check_in(self, obj):
+        return obj.check_in.strftime("%H:%M:%S %d/%m/%Y")
+
+
+class LogDetailAdminSerializer(serializers.ModelSerializer):
+    check_in = serializers.SerializerMethodField()
+    check_out = serializers.SerializerMethodField()
+    owner_name = serializers.CharField(source='vehicle_face.owner_name', read_only=True)
+    plate = serializers.CharField(source='vehicle.license_plate', read_only=True)
+    vehicle_image = serializers.CharField(source='vehicle.image.url', read_only=True)
+    vehicle_name = serializers.CharField(source='vehicle.name', read_only=True)
+
+    class Meta:
+        model = ParkingLog
+        fields = ['id', 'plate', 'owner_name', 'vehicle_image', 'vehicle_name', 'duration_minutes', 'fee', 'status', 'check_in', 'check_out' ]
+
+    def get_check_in(self, obj):
+        return obj.check_in.strftime("%H:%M:%S %d/%m/%Y")
+
+    def get_check_out(self, obj):
+        return obj.check_out.strftime("%H:%M:%S %d/%m/%Y")

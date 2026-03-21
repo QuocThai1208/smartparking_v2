@@ -1,10 +1,15 @@
 from datetime import date
-import  math
+import math
+import calendar
 from django.utils import timezone
-from typing import Optional
+from typing import Optional, Any
+
+from rest_framework.exceptions import ValidationError
+
 from ...users.models import UserRole, User
 from ..models import ParkingLog, ParkingStatus, Vehicle, FeeRule, FeeType, VehicleFace
 from django.db.models import Sum
+
 
 class ParkingLogStatsService:
     @staticmethod
@@ -82,7 +87,7 @@ class ParkingLogService:
 
     # HÀM: Tạo mới nhật kí gửi xe
     @staticmethod
-    def create_parking_log(v: Vehicle, fee_type: FeeType, face = VehicleFace) -> tuple[bool, str]:
+    def create_parking_log(v: Vehicle, fee_type: FeeType, face=VehicleFace) -> tuple[bool, str]:
         exist_p = ParkingLog.objects.filter(user=v.user, vehicle=v, status=ParkingStatus.IN).first()
         if exist_p:
             return False, 'Phương tiện này đang có trong bãi'
@@ -96,3 +101,64 @@ class ParkingLogService:
         if p:
             return True, "Xin mời vào."
         return False, "Không hợp lệ."
+
+    @staticmethod
+    def get_top5_history():
+        logs = ParkingLog.objects.all().order_by('-id')[:10]
+        return logs
+
+    @staticmethod
+    def get_my_logs(user: User, day: int, month: int, year: int):
+        df, dt = ParkingLogService.create_df_dt(day, month, year)
+
+        filters: dict[str, Any] = {
+            'user': user,
+            'active': True
+        }
+
+        if df:
+            filters['created_date__date__gte'] = df
+        if dt:
+            filters['created_date__date__lte'] = dt
+
+        return (ParkingLog.objects.filter(**filters)
+                .select_related('vehicle')
+                .order_by("-created_date"))
+
+    @staticmethod
+    def get_all_logs(user: User, day: int, month: int, year: int, plate: str):
+        df, dt = ParkingLogService.create_df_dt(day, month, year)
+
+        filters: dict[str, Any] = {}
+
+        if df:
+            filters['created_date__date__gte'] = df
+        if dt:
+            filters['created_date__date__lte'] = dt
+        if plate:
+            filters['vehicle__license_plate__istartswith'] = plate
+
+        return (ParkingLog.objects.filter(**filters)
+                .select_related('vehicle_face', 'vehicle')
+                .order_by("-created_date"))
+
+    @staticmethod
+    def create_df_dt(day, month, year) -> tuple[date, date]:
+        if day and month and year:
+            df = dt = date(year, month, day)
+        elif month and year and not day:
+            last = calendar.monthrange(year, month)[1]  # lấy ngày cuối cùng của tháng
+            df = date(year, month, 1)
+            dt = date(year, month, last)
+        elif year and not month and not day:
+            df = date(year, 1, 1)
+            dt = date(year, 12, 31)
+        elif not any([day, month, year]):  # trả về false nếu cả 3 là none
+            df = dt = None
+        else:
+            raise ValidationError(
+                "• Muốn lấy theo ngày: cần ngày, tháng, năm\n"
+                "• Muốn theo tháng: cần tháng, năm\n"
+                "• Muốn theo năm: chỉ cần năm"
+            )
+        return df, dt

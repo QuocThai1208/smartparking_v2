@@ -33,6 +33,7 @@ def facial_verification_check_in(all_faces, embedding):
         return best_face
     return None
 
+
 def face_verification_check_out(face, embedding):
     threshold = 0.5
     dist = calculate_distance(embedding, face.face_vector)
@@ -58,21 +59,26 @@ class ParkingService:
         ).first()
 
         if vehicle is None:
-            return False, "Không tìm thấy phương tiện khớp với biển số"
+            return False, "Không tìm thấy phương tiện khớp với biển số", None
 
         if vehicle.color != color or vehicle.brand != brand or vehicle.type != type:
-            return False, "Phương tiện không hợp lệ"
+            return False, "Phương tiện không hợp lệ", None
 
         all_faces = vehicle.faces.all()
         if not all_faces.exists():
-            return False, "Phương tiện này chưa đăng ký khuôn mặt chủ xe"
+            return False, "Phương tiện này chưa đăng ký khuôn mặt chủ xe", None
 
         best_face = facial_verification_check_in(all_faces, embedding)
         if best_face is None:
-            return False, "Xác minh khuôn mặt thất bại"
+            return False, "Xác minh khuôn mặt thất bại", None
 
         success, msg = ParkingLogService.create_parking_log(vehicle, vehicle.type, best_face)
-        return success, msg
+        return success, msg, {
+            'plate': plate_text,
+            'type': type,
+            'brand': brand,
+            'color': color,
+        }
 
     @staticmethod
     def check_out(face_img, image_front, image_plate):
@@ -88,17 +94,18 @@ class ParkingService:
             is_approved=True
         ).first()
 
-        temp_log = ParkingLog.objects.filter(vehicle=vehicle, status=ParkingStatus.IN).select_related('vehicle_face').last()
+        temp_log = ParkingLog.objects.filter(vehicle=vehicle, status=ParkingStatus.IN).select_related(
+            'vehicle_face').last()
 
         if vehicle is None:
-            return False, "Không tìm thấy phương tiện khớp với biển số"
+            return False, "Không tìm thấy phương tiện khớp với biển số", None
 
         if vehicle.color != color or vehicle.brand != brand or vehicle.type != type:
-            return False, "Phương tiện không hợp lệ"
+            return False, "Phương tiện không hợp lệ", None
 
         result_face_verification = face_verification_check_out(temp_log.vehicle_face, embedding)
         if not result_face_verification:
-            return False, "Xác minh khuôn mặt thất bại"
+            return False, "Xác minh khuôn mặt thất bại", None
 
         with transaction.atomic():
             ok, log = ParkingLogService.update_parking(vehicle)
@@ -110,7 +117,10 @@ class ParkingService:
                     update_fields=['check_out', 'duration_minutes', 'status', 'fee']
                 )
             except Exception as e:
-                return ok, "Có lỗi " + str(e)
-        return ok, msg
-
-
+                return ok, "Có lỗi " + str(e), None
+        return ok, msg, {
+            'plate': plate_text,
+            'type': type,
+            'brand': brand,
+            'color': color,
+        }

@@ -9,7 +9,7 @@ class IsVehicleOwner(permissions.IsAuthenticated):
 
 class IsStaffOrAdmin(permissions.IsAuthenticated):
     def has_permission(self, request, view):
-        return super().has_permission(request, view) and request.user.user_role == UserRole.STAFF or request.user.user_role == UserRole.ADMIN
+        return super().has_permission(request, view) and (request.user.user_role == UserRole.STAFF or request.user.user_role == UserRole.ADMIN)
 
 
 class IsStaffOrReadOnly(permissions.IsAuthenticated):

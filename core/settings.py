@@ -13,7 +13,8 @@ sys.path.insert(0, os.path.join(BASE_DIR, 'apps'))
 DEBUG = config('DEBUG', default=True, cast=bool)
 
 # Cho phép Domain của Railway và localhost
-ALLOWED_HOSTS = config('ALLOWED_HOSTS', default='127.0.0.1,localhost', cast=Csv())
+ALLOWED_HOSTS = ['*']
+CSRF_TRUSTED_ORIGINS = ['https://*.ngrok-free.app']
 
 # Application definition
 
@@ -57,12 +58,32 @@ REST_FRAMEWORK = {
     'DEFAULT_PERMISSION_CLASSES': (
         'rest_framework.permissions.IsAuthenticated',
     ),
+    'PAGE_SIZE': 10,
 }
 
 ROOT_URLCONF = 'core.urls'
 
 # Cho phép tất cả (chỉ dùng cho môi trường Local/Development)
 CORS_ALLOW_ALL_ORIGINS = True
+
+CORS_ALLOW_HEADERS = [
+    "accept",
+    "authorization",
+    "content-type",
+    "user-agent",
+    "x-csrftoken",
+    "x-requested-with",
+    "ngrok-skip-browser-warning",  # Nếu dùng ngrok
+]
+
+CORS_ALLOW_METHODS = [
+    "DELETE",
+    "GET",
+    "OPTIONS",
+    "PATCH",
+    "POST",
+    "PUT",
+]
 
 TEMPLATES = [
     {
@@ -91,7 +112,7 @@ else:
     DATABASES = {
         'default': {
             'ENGINE': 'django.db.backends.mysql',
-            'NAME': config('DB_NAME', default=None) ,
+            'NAME': config('DB_NAME', default=None),
             'USER': config('DB_USER', default=None),
             'PASSWORD': config('DB_PASS', default=None),
             'HOST': config('DB_HOST', default=None),
@@ -138,11 +159,12 @@ sys.path.insert(0, os.path.join(BASE_DIR, 'apps'))
 from decouple import config
 
 import cloudinary
+
 cloudinary.config(
-  cloud_name = config('CLOUDINARY_NAME'),
-  api_key = config('CLOUDINARY_API_KEY'),
-  api_secret = config('CLOUDINARY_API_SECRET'),
-  secure = True
+    cloud_name=config('CLOUDINARY_NAME'),
+    api_key=config('CLOUDINARY_API_KEY'),
+    api_secret=config('CLOUDINARY_API_SECRET'),
+    secure=True
 )
 
 DEFAULT_FILE_STORAGE = 'cloudinary_storage.storage.MediaCloudinaryStorage'
