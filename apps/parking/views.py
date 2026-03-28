@@ -1,6 +1,7 @@
 from typing import Optional
 
 from datetime import date
+from django.utils import timezone
 
 from drf_yasg.utils import swagger_auto_schema
 from rest_framework import viewsets, generics, permissions, status, mixins
@@ -12,7 +13,6 @@ from rest_framework.response import Response
 from ..users import perms
 
 from .models import Vehicle, FeeRule, ParkingLog, ParkingStatus
-from ..users.models import UserRole
 
 from .services.vehicle_service import VehicleService
 from .serializers.vehicle_serializers import VehicleSerializer, VehicleCreateSerializer
@@ -23,7 +23,7 @@ from .serializers.vehicle_face_serializers import FaceRegistrationInputSerialize
 from .serializers.parking_serializers import CheckInSerializer, CheckOutSerializer, ParkingBaseSerializer
 
 from .services.parking_service import ParkingService
-from .services.parking_log_service import ParkingLogService
+from .services.parking_log_service import ParkingLogService, ParkingLogStatsService
 
 
 class VehicleViewSet(viewsets.ModelViewSet):
@@ -61,11 +61,18 @@ class VehicleFaceViewSet(viewsets.GenericViewSet, mixins.CreateModelMixin):
         return Response(serializer.data, status=status.HTTP_201_CREATED)
 
 
-class FeeRoleViewSet(viewsets.ViewSet, generics.ListAPIView, generics.UpdateAPIView,
-                     generics.DestroyAPIView):
+class FeeRoleViewSet(viewsets.GenericViewSet,
+                     mixins.CreateModelMixin,
+                     mixins.RetrieveModelMixin,
+                     mixins.UpdateModelMixin,
+                     mixins.ListModelMixin):
     queryset = FeeRule.objects.all()
     serializer_class = FeeRuleSerializer
-    permission_classes = [perms.IsStaffOrReadOnly]
+
+    def get_permissions(self):
+        if self.action in ["list", "retrieve"]:
+            return [permissions.AllowAny()]
+        return [perms.IsEmployee()]
 
 
 class ParkingLogViewSet(viewsets.ViewSet, generics.ListAPIView):
@@ -141,8 +148,43 @@ class ParkingViewSet(viewsets.GenericViewSet):
 
 
 class AdminViewSet(viewsets.GenericViewSet):
-    permission_classes = [perms.IsStaffOrAdmin]
+    permission_classes = [perms.IsEmployee]
     pagination_class = PageNumberPagination
+
+    @action(detail=False, methods=["post"], url_path=r"vehicles/(?P<vehicle_id>\d+)/is_approved-change",
+            permission_classes=[perms.IsEmployee])
+    def vehicle_approved(self, request, vehicle_id=None):
+        try:
+            vehicle = Vehicle.objects.get(id=vehicle_id)
+            value = request.query_params.get('value')
+            if not value:
+                return Response({"message": "Vui lòng điền giá trị thây đổi"}, status=status.HTTP_400_BAD_REQUEST)
+            vehicle.is_approved = value
+            vehicle.save()
+            return Response({"message": "Thây đổi trạng thái phương tiện thành công."}, status=status.HTTP_200_OK)
+        except Vehicle.DoesNotExist:
+            return Response({"detail": "Không tìm thấy phương tiện"}, status=status.HTTP_400_BAD_REQUEST)
+
+    @swagger_auto_schema(responses={200: VehicleSerializer(many=True)})
+    @action(detail=False, methods=["get"], url_path="vehicles", permission_classes=[perms.IsEmployee])
+    def get_vehicles(self, request):
+        license_plate = request.query_params.get("license_plate", "")
+        is_approved = request.query_params.get("is_approved", None)
+
+        vehicles = VehicleService.get_all_vehicle(license_plate, is_approved)
+
+        paginator = self.pagination_class()
+        page = paginator.paginate_queryset(vehicles, request)
+
+        if page is not None:
+            serializer = VehicleSerializer(page, many=True)
+            return paginator.get_paginated_response(serializer.data)
+
+        serializer = VehicleSerializer(vehicles, many=True)
+        return Response({
+            "message": "Lấy toàn bộ danh sách phương tiện thành công.",
+            "result": serializer.data
+        }, status=status.HTTP_200_OK)
 
     @swagger_auto_schema(responses={200: LogHistoryAdminSerializer(many=True)})
     @action(detail=False, methods=["get"], url_path="history")
@@ -182,6 +224,78 @@ class AdminViewSet(viewsets.GenericViewSet):
         return Response({
             "message": "Lấy toàn bộ lịch sử gửi xe thành công",
             "result": LogDetailAdminSerializer(parking_logs, many=True).data
+        }, status=status.HTTP_200_OK)
+
+
+class StatsViewSet(viewsets.GenericViewSet):
+    @action(methods=['get'], detail=False, url_path='parking/peak-hours',
+            permission_classes=[perms.IsEmployee])
+    def get_peak_hour_stats(self, request):
+        today = timezone.localdate()
+        year = today.year
+        month = today.month
+        day = today.day
+
+        df, dt = ParkingLogService.create_df_dt(day, month, year)
+        response = ParkingLogStatsService.get_peak_hour_stats(df, dt)
+        return Response({
+            "message": "Lấy thống kê khung giờ cao điểm thành công",
+            "result": response
+        }, status=status.HTTP_200_OK)
+
+    @action(methods=['get'], detail=False, url_path='parking-logs/compare',
+            permission_classes=[permissions.IsAuthenticated])
+    def get_count_parking_log(self, request):
+        user = self.request.user
+        try:
+            day = _to_int_or_none(self.request.query_params.get("day"))
+            month = _to_int_or_none(self.request.query_params.get("month"))
+            year = _to_int_or_none(self.request.query_params.get("year"))
+        except ValueError:
+            return Response({"detail": "Thông tin lọc không hợp lệ"}, status=status.HTTP_400_BAD_REQUEST)
+
+        current_start, current_end = ParkingLogService.create_df_dt(day, month, year)
+
+        period_value = ""
+        prev_start = None
+        prev_end = None
+        if day and month and year:
+            period_value = f"ngày {day - 1}/{month}/{year}"
+            prev_start, prev_end = ParkingLogService.create_df_dt(day - 1, month, year)
+        elif month and year and not day:
+            period_value = f"tháng {month - 1}/{year}"
+            prev_start, prev_end = ParkingLogService.create_df_dt(day, month - 1, year)
+        elif year and not month and not day:
+            period_value = f"năm {year - 1}"
+            prev_start, prev_end = ParkingLogService.create_df_dt(day, month, year - 1)
+
+        result = ParkingLogStatsService.get_total_count_parking(user,
+                                                                period_value,
+                                                                current_start,
+                                                                current_end,
+                                                                prev_start,
+                                                                prev_end)
+        return Response({
+            "message": "Xem số lượng xe giữ thành công.",
+            "result": result
+        }, status=status.HTTP_200_OK)
+
+    @action(methods=['get'], detail=False, url_path='parking/current',
+            permission_classes=[permissions.IsAuthenticated])
+    def get_parking_current_stats(self, request):
+        response = ParkingLogStatsService.get_parking_current_stats()
+        return Response({
+            "message": "Lấy thông tin hiện tại của bãi xe thành công",
+            "result": response
+        }, status=status.HTTP_200_OK)
+
+    @action(methods=['get'], detail=False, url_path='total-customer',
+            permission_classes=[perms.IsStaffOrAdmin])
+    def get_total_customer(self, request):
+        response = ParkingLogStatsService.get_total_customer()
+        return Response({
+            "message": "Lấy tổng số khách hàng thành công",
+            "result": response
         }, status=status.HTTP_200_OK)
 
 

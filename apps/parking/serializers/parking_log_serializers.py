@@ -38,15 +38,23 @@ class ParkingLogSerializer(serializers.ModelSerializer):
 
 class LogHistoryAdminSerializer(serializers.ModelSerializer):
     check_in = serializers.SerializerMethodField()
+    check_out = serializers.SerializerMethodField()
     owner_name = serializers.CharField(source='vehicle_face.owner_name', read_only=True)
     plate = serializers.CharField(source='vehicle.license_plate', read_only=True)
 
     class Meta:
         model = ParkingLog
-        fields = ['id', 'plate', 'check_in', 'owner_name' ]
+        fields = ['id', 'plate', 'check_in', 'check_out', 'owner_name']
 
     def get_check_in(self, obj):
-        return obj.check_in.strftime("%H:%M:%S %d/%m/%Y")
+        if obj.check_in:
+            return obj.check_in.strftime("%H:%M:%S %d/%m/%Y")
+        return None
+
+    def get_check_out(self, obj):
+        if obj.check_out:
+            return obj.check_out.strftime("%H:%M:%S %d/%m/%Y")
+        return None
 
 
 class LogDetailAdminSerializer(serializers.ModelSerializer):
@@ -62,7 +70,11 @@ class LogDetailAdminSerializer(serializers.ModelSerializer):
         fields = ['id', 'plate', 'owner_name', 'vehicle_image', 'vehicle_name', 'duration_minutes', 'fee', 'status', 'check_in', 'check_out' ]
 
     def get_check_in(self, obj):
-        return obj.check_in.strftime("%H:%M:%S %d/%m/%Y")
+        if obj.check_in:
+            return obj.check_in.strftime("%H:%M:%S %d/%m/%Y")
+        return None
 
     def get_check_out(self, obj):
-        return obj.check_out.strftime("%H:%M:%S %d/%m/%Y")
+        if obj.check_out:
+            return obj.check_out.strftime("%H:%M:%S %d/%m/%Y")
+        return None

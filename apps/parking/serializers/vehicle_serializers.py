@@ -9,7 +9,7 @@ class VehicleSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Vehicle
-        fields = ['id', 'user_name', 'name', 'license_plate', 'type', 'image', 'is_approved', 'color', 'brand']
+        fields = ['id', 'user_name', 'name', 'license_plate', 'type', 'image', 'is_approved', 'color', 'brand', 'active']
 
     def to_representation(self, instance):
         data = super().to_representation(instance)

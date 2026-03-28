@@ -1,3 +1,7 @@
+from asgiref.sync import async_to_sync
+from channels.layers import get_channel_layer
+
+from .parking_log_service import ParkingLogStatsService
 from ..AI_client.predict_vehicle_client import PredictVehicleClient
 from ..AI_client.detect_face_client import DetectFaceClient
 from ..models import Vehicle, ParkingStatus, ParkingLog
@@ -73,6 +77,23 @@ class ParkingService:
             return False, "Xác minh khuôn mặt thất bại", None
 
         success, msg = ParkingLogService.create_parking_log(vehicle, vehicle.type, best_face)
+
+        # gửi dữ liệu xuống client
+        if success:
+            channel_layer = get_channel_layer()
+            new_data = {
+                "type": "parking_current_stats_update",
+                "result": ParkingLogStatsService.get_parking_current_stats()
+            }
+
+            async_to_sync(channel_layer.group_send)(
+                "analytics_group",
+                {
+                    "type": "send_update",
+                    "data": new_data
+                }
+            )
+
         return success, msg, {
             'plate': plate_text,
             'type': type,
@@ -118,6 +139,22 @@ class ParkingService:
                 )
             except Exception as e:
                 return ok, "Có lỗi " + str(e), None
+
+        # gửi dữ liệu xuống client
+        if ok:
+            channel_layer = get_channel_layer()
+            new_data = {
+                "type": "parking_current_stats_update",
+                "result": ParkingLogStatsService.get_parking_current_stats()
+            }
+
+            async_to_sync(channel_layer.group_send)(
+                "analytics_group",
+                {
+                    "type": "send_update",
+                    "data": new_data
+                }
+            )
         return ok, msg, {
             'plate': plate_text,
             'type': type,

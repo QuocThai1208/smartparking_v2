@@ -3,6 +3,7 @@ from typing import Optional
 from rest_framework import viewsets, permissions, status, mixins
 from rest_framework.decorators import action
 from rest_framework.exceptions import ValidationError
+from rest_framework.pagination import PageNumberPagination
 from rest_framework.response import Response
 
 from .models import Payment, WalletTransaction, Wallet
@@ -15,7 +16,6 @@ from ..users.models import UserRole
 from ..users import perms
 
 from ..parking.services.parking_log_service import ParkingLogService, ParkingLogStatsService
-
 
 
 class PaymentViewSet(viewsets.GenericViewSet, mixins.ListModelMixin):
@@ -88,9 +88,9 @@ class WalletViewSet(viewsets.GenericViewSet):
         }, status=status.HTTP_200_OK)
 
 
-
-class StatsViewSet(viewsets.ViewSet):
-    @action(methods=['get'], detail=False, url_path='revenue', permission_classes=[perms.IsStaffOrAdmin])
+class StatsViewSet(viewsets.GenericViewSet):
+    pagination_class = PageNumberPagination
+    @action(methods=['get'], detail=False, url_path='revenue', permission_classes=[perms.IsEmployee])
     def get_stats_revenue(self, request):
         user = self.request.user
         try:
@@ -98,14 +98,26 @@ class StatsViewSet(viewsets.ViewSet):
             month = _to_int_or_none(self.request.query_params.get("month"))
             year = _to_int_or_none(self.request.query_params.get("year"))
         except ValueError:
-            raise ValidationError("ngày, tháng, năm phải là số dương")
+            return Response({"detail": "Thông tin lọc không hợp lệ"}, status=status.HTTP_400_BAD_REQUEST)
 
-        df, dt = FinanceService.create_df_dt(day, month, year)
-        revenue = FinanceService.get_total_revenue_range("my", user, df, dt)
-        return Response(revenue, status=status.HTTP_200_OK)
+        df, dt = ParkingLogService.create_df_dt(day, month, year)
+        revenue = FinanceService.get_total_revenue_range(user, df, dt)
+        return Response({
+            "message": "Lấy tổng doanh thu thành công",
+            "result": {
+                "revenue": revenue
+            }}, status=status.HTTP_200_OK)
 
-    @action(methods=['get'], detail=False, url_path='revenue/compare-monthly',
-            permission_classes=[perms.IsStaffOrAdmin])
+    @action(methods=['get'], detail=False, url_path='revenue/chart', permission_classes=[perms.IsEmployee])
+    def get_revenue_chart(self, request):
+        results = FinanceService.get_revenue_chart_data()
+
+        return Response({
+            "message": "Lấy dữ liệu biểu đồ theo thành công",
+            "result": results
+        }, status=status.HTTP_200_OK)
+
+    @action(methods=['get'], detail=False, url_path='revenue/compare', permission_classes=[perms.IsEmployee])
     def get_compare_monthly_revenue(self, request):
         user = self.request.user
         try:
@@ -113,77 +125,72 @@ class StatsViewSet(viewsets.ViewSet):
             month = _to_int_or_none(self.request.query_params.get("month"))
             year = _to_int_or_none(self.request.query_params.get("year"))
         except ValueError:
-            raise ValidationError("ngày, tháng, năm phải là số dương")
-        current_start, current_end = FinanceService.create_df_dt(day, month, year)
-        prev_start, prev_end = FinanceService.create_df_dt(day, month - 1, year)
-        payload = FinanceService.compare_monthly_revenue(user, current_start, current_end, prev_start, prev_end)
-        return Response(payload, status=status.HTTP_200_OK)
+            return Response({"detail": "Thông tin lọc không hợp lệ"}, status=status.HTTP_400_BAD_REQUEST)
 
-    @action(methods=['get'], detail=False, url_path="revenue/by-user", permission_classes=[perms.IsStaffOrAdmin])
+        current_start, current_end = FinanceService.create_df_dt(day, month, year)
+
+        period_value = ""
+        prev_start = None
+        prev_end = None
+        if day and month and year:
+            period_value = f"ngày {day - 1}/{month}/{year}"
+            prev_start, prev_end = ParkingLogService.create_df_dt(day - 1, month, year)
+        elif month and year and not day:
+            period_value = f"tháng {month - 1}/{year}"
+            prev_start, prev_end = ParkingLogService.create_df_dt(day, month - 1, year)
+        elif year and not month and not day:
+            period_value = f"năm {year - 1}"
+            prev_start, prev_end = ParkingLogService.create_df_dt(day, month, year - 1)
+
+        response = FinanceService.compare_monthly_revenue(user,
+                                                          period_value,
+                                                          current_start,
+                                                          current_end,
+                                                          prev_start,
+                                                          prev_end)
+        return Response({
+            "message": "Lấy thông tin so sánh doanh thu thành công",
+            "result": response
+        }, status=status.HTTP_200_OK)
+
+    @action(methods=['get'], detail=False, url_path="revenue/by-user", permission_classes=[perms.IsEmployee])
     def get_revenue_by_user(self, request):
         try:
             day = _to_int_or_none(self.request.query_params.get("day"))
             month = _to_int_or_none(self.request.query_params.get("month"))
             year = _to_int_or_none(self.request.query_params.get("year"))
         except ValueError:
-            raise ValidationError("ngày, tháng, năm phải là số dương")
+            return Response({"detail": "Thông tin lọc không hợp lệ"}, status=status.HTTP_400_BAD_REQUEST)
 
         df, dt = FinanceService.create_df_dt(day, month, year)
-        payload = FinanceService.get_revenue_by_user(df, dt)
-        return Response(payload, status=status.HTTP_200_OK)
+        response = FinanceService.get_revenue_by_user(df, dt)
 
-    @action(methods=['get'], detail=False, url_path='parking-logs/count',
-            permission_classes=[permissions.IsAuthenticated])
-    def get_count_parking_log(self, request):
-        user = self.request.user
-        regimen = self.request.query_params.get("regimen")
+        paginator = self.pagination_class()
+        page = paginator.paginate_queryset(response, request)
+
+        if page is not None:
+            return paginator.get_paginated_response(page)
+
+        return Response({
+            "message": "Lấy doanh thu theo khách hàng thành công.",
+            "result": response
+        }, status=status.HTTP_200_OK)
+
+    @action(methods=['get'], detail=False, url_path="revenue/by-type-vehicle", permission_classes=[perms.IsEmployee])
+    def get_revenue_by_type_vehicle(self, request):
         try:
             day = _to_int_or_none(self.request.query_params.get("day"))
             month = _to_int_or_none(self.request.query_params.get("month"))
             year = _to_int_or_none(self.request.query_params.get("year"))
         except ValueError:
-            raise ValidationError("ngày, tháng, năm phải là số dương")
+            return Response({"detail": "Thông tin lọc không hợp lệ"}, status=status.HTTP_400_BAD_REQUEST)
 
         df, dt = FinanceService.create_df_dt(day, month, year)
-        count_parking_log = ParkingLogStatsService.get_total_count_parking(user, df, dt)
-        payload = {"countParkingLog": count_parking_log}
-
-        if df and dt and df == dt:
-            payload.update({"ngày": f"{df.day}/{df.month}/{df.year}"})
-        elif df and dt and df.month == 1 and df.day == 1 and dt.month == 12:
-            payload.update({"năm": df.year})
-        elif df and dt and df.day == 1:
-            payload.update({"tháng": f"{df.month}/{df.year}"})
-        return Response(payload, status=status.HTTP_200_OK)
-
-    @action(methods=['get'], detail=False, url_path='parking-logs/total-time',
-            permission_classes=[permissions.IsAuthenticated])
-    def get_total_time_parking_log(self, request):
-        user = self.request.user
-        try:
-            day = _to_int_or_none(self.request.query_params.get("day"))
-            month = _to_int_or_none(self.request.query_params.get("month"))
-            year = _to_int_or_none(self.request.query_params.get("year"))
-        except ValueError:
-            raise ValidationError("ngày, tháng, năm phải là số dương")
-
-        df, dt = FinanceService.create_df_dt(day, month, year)
-        total_time = ParkingLogStatsService.get_total_time_parking(user, df, dt)
-        payload = {"totalTime": total_time}
-
-        if df and dt and df == dt:
-            payload.update({"ngày": f"{df.day}/{df.month}/{df.year}"})
-        elif df and dt and df.month == 1 and df.day == 1 and dt.month == 12:
-            payload.update({"năm": df.year})
-        elif df and dt and df.day == 1:
-            payload.update({"tháng": f"{df.month}/{df.year}"})
-        return Response(payload, status=status.HTTP_200_OK)
-
-    @action(methods=['get'], detail=False, url_path='total-customer',
-            permission_classes=[perms.IsStaffOrAdmin])
-    def get_total_customer(self, request):
-        payload = ParkingLogStatsService.get_total_customer()
-        return Response(payload, status=status.HTTP_200_OK)
+        response = FinanceService.get_revenue_by_type_vehicle(df, dt)
+        return Response({
+            "message": "Lấy doanh thu theo loại xe thành công.",
+            "result": response
+        }, status=status.HTTP_200_OK)
 
 
 def _to_int_or_none(value: Optional[str]) -> Optional[int]:

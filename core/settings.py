@@ -22,6 +22,8 @@ FACE_SERVICE_URL = config('FACE_SERVICE_URL', default="http://127.0.0.1:8002/api
 PLATE_SERVICE_URL = config('PLATE_SERVICE_URL', default="http://127.0.0.1:8001/api/v1/predict-vehicle")
 
 INSTALLED_APPS = [
+    'daphne',
+    'channels',
     'django.contrib.admin',
     'django.contrib.auth',
     'django.contrib.contenttypes',
@@ -38,6 +40,8 @@ INSTALLED_APPS = [
     'apps.parking',
     'apps.finance',
 ]
+
+
 
 MIDDLEWARE = [
     'corsheaders.middleware.CorsMiddleware',
@@ -60,6 +64,8 @@ REST_FRAMEWORK = {
     ),
     'PAGE_SIZE': 10,
 }
+
+DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
 ROOT_URLCONF = 'core.urls'
 
@@ -101,6 +107,16 @@ TEMPLATES = [
 ]
 
 WSGI_APPLICATION = 'core.wsgi.application'
+ASGI_APPLICATION = 'core.asgi.application'
+
+CHANNEL_LAYERS = {
+    "default": {
+        "BACKEND": "channels_redis.core.RedisChannelLayer",
+        "CONFIG": {
+            "hosts": [("redis://:admin@127.0.0.1:6379")],
+        },
+    },
+}
 
 from decouple import config
 

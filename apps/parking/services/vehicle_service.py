@@ -1,3 +1,4 @@
+from typing import Any
 
 from ..models import User, Vehicle, FeeType
 from ..AI_client.predict_vehicle_client import PredictVehicleClient
@@ -46,3 +47,14 @@ class VehicleService:
             image=image_front
         )
         return vehicle
+
+    @staticmethod
+    def get_all_vehicle(license_plate:str, is_approved: bool):
+        filters: dict[str, Any] = {}
+
+        if license_plate:
+            filters["license_plate"] = license_plate
+        if is_approved:
+            filters["is_approved"] = is_approved
+        vehicles = Vehicle.objects.filter(**filters)
+        return vehicles

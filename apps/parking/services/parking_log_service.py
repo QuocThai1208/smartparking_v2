@@ -1,6 +1,8 @@
 from datetime import date
 import math
 import calendar
+
+from django.db.models.functions import ExtractHour
 from django.utils import timezone
 from typing import Optional, Any
 
@@ -8,28 +10,99 @@ from rest_framework.exceptions import ValidationError
 
 from ...users.models import UserRole, User
 from ..models import ParkingLog, ParkingStatus, Vehicle, FeeRule, FeeType, VehicleFace
-from django.db.models import Sum
+from django.db.models import Sum, Count
 
 
 class ParkingLogStatsService:
     @staticmethod
-    def get_total_count_parking(user: User,
-                                date_from: Optional[date] = None,
-                                date_to: Optional[date] = None) -> int:
-        if user.user_role == UserRole.CUSTOMER:
-            parking_logs = ParkingLog.objects.filter(user=user, status=ParkingStatus.OUT)
-        else:
-            parking_logs = ParkingLog.objects.filter(status=ParkingStatus.OUT)
-
+    def get_peak_hour_stats(date_from=None, date_to=None):
+        filters = {}
         if date_from:
-            # lấy các bảng ghi có ngày lớn hơn date_froms
-            parking_logs = parking_logs.filter(created_date__date__gte=date_from)
+            filters["created_date__date__gte"] = date_from
         if date_to:
-            # lấy các bảng ghi có ngày nhỏ lơn date_to
-            parking_logs = parking_logs.filter(created_date__date__lte=date_to)
+            filters["created_date__date__lte"] = date_to
 
-        count = parking_logs.count()
-        return count
+        data = ParkingLog.objects.filter(**filters).annotate(
+            hour=ExtractHour('created_date')
+        ).values('hour').annotate(
+            count=Count('id')
+        ).order_by('hour')
+
+        #Tạo dictionary để tra cứu nhanh: {8: 150, 17: 200, ...}
+        data_dict = {item['hour']: item['count'] for item in data}
+
+        results = []
+        for h in range(24):
+            results.append({
+                "name": f"{h}:00",
+                "value": data_dict.get(h, 0)
+            })
+
+        return results
+
+    @staticmethod
+    def get_parking_current_stats():
+        total_slots = 100
+        occupied = ParkingLog.objects.filter(status=ParkingStatus.IN).count()
+        return {
+            "total": total_slots,
+            "occupied": occupied,
+            "available": total_slots - occupied,
+        }
+
+    @staticmethod
+    def get_total_count_parking(user: User,
+                                period_value: str,
+                                current_start: Optional[date] = None,
+                                current_end: Optional[date] = None,
+                                prev_start: Optional[date] = None,
+                                prev_end: Optional[date] = None,
+                                ):
+        filters_current: dict[str, Any] = {}
+
+        if user.user_role == UserRole.CUSTOMER:
+            filters_current["user"] = user
+            filters_current["status"] = ParkingStatus.OUT
+        elif user.user_role in [UserRole.MANAGE, UserRole.STAFF, UserRole.ADMIN]:
+            filters_current["status"] = ParkingStatus.OUT
+
+        if current_start:
+            filters_current["created_date__date__gte"] = current_start
+        if current_end:
+            filters_current["created_date__date__lte"] = current_end
+
+        current_count = ParkingLog.objects.filter(**filters_current).count()
+
+        if prev_start and prev_end:
+            filters_prev: dict[str, Any] = {
+                "created_date__date__gte": prev_start,
+                "created_date__date__lte": prev_end
+            }
+
+            if user.user_role == UserRole.CUSTOMER:
+                filters_prev["user"] = user
+                filters_prev["status"] = ParkingStatus.OUT
+            elif user.user_role in [UserRole.MANAGE, UserRole.STAFF, UserRole.ADMIN]:
+                filters_prev["status"] = ParkingStatus.OUT
+
+
+            prev_count = ParkingLog.objects.filter(**filters_prev).count()
+
+            if prev_count == 0:
+                change_percent = 100.0 if current_count > 0 else 0.0
+            else:
+                change_percent = ((current_count - prev_count) / prev_count) * 100
+            return {
+                "total": current_count,
+                "change": change_percent,
+                "period": f"so với {period_value}"
+            }
+
+        return {
+            "total": current_count,
+            "change": 0,
+            "period": ""
+        }
 
     @staticmethod
     def get_total_time_parking(user: User,
