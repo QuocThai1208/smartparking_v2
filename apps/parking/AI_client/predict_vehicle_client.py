@@ -1,3 +1,5 @@
+import os.path
+
 from django.conf import settings
 from ..models import FeeType
 import requests
@@ -5,10 +7,10 @@ import requests
 class PredictVehicleClient:
 
     @staticmethod
-    def prodict_vehicle(image_front, image_plate):
+    def prodict_vehicle(image_front_path, image_plate_path):
         """
-        :param image_front: ảnh chụp đầu xe
-        :param image_plate: ảnh chụp biển số xe
+        :param image_front_path: đường dẫn ảnh chụp đầu xe
+        :param image_plate_path: đường dẫn ảnh chụp biển số xe
         :return: {
                     'plate': '70G100000',
                     'attributes': {
@@ -19,18 +21,22 @@ class PredictVehicleClient:
                 }
         """
         url = settings.PLATE_SERVICE_URL
-        # Chuẩn bị file để gửi qua POST request
-        files = {
-            'image_front': (image_front.name, image_front.read(), image_front.content_type),
-            'image_plate': (image_plate.name, image_plate.read(), image_plate.content_type),
-        }
-        try:
-            # Gửi yêu cầu sang AI Service
-            response = requests.post(url, files=files, timeout=60)
-            response.raise_for_status()
-            ai_data = response.json()
 
-            if ai_data['success']:
-                return ai_data['data']
+        try:
+            with open(image_front_path, 'rb') as f_front, open(image_plate_path, 'rb') as f_plate:
+                # Chuẩn bị file để gửi qua POST request
+                files = {
+                    'image_front': (os.path.basename(image_front_path), f_front, 'image/jpeg'),
+                    'image_plate': (os.path.basename(image_plate_path), f_plate, 'image/jpeg'),
+                }
+
+                # Gửi yêu cầu sang AI Service
+                response = requests.post(url, files=files, timeout=60)
+                response.raise_for_status()
+                ai_data = response.json()
+
+                if ai_data['success']:
+                    return ai_data['data']
+            raise ValueError("AI Service return success: False")
         except Exception as e:
             raise ValueError("detail", e)

@@ -91,6 +91,17 @@ CORS_ALLOW_METHODS = [
     "PUT",
 ]
 
+# Đường dẫn đến thư mục Media
+MEDIA_URL = '/media/'
+MEDIA_ROOT = os.path.join(BASE_DIR, 'media')
+
+# thư mục con 'temp_ai' để chứa ảnh đang chờ AI xử lý
+TEMP_AI_ROOT = os.path.join(MEDIA_ROOT, 'temp_ai')
+
+# Tự động tạo thư mục nếu chưa có
+if not os.path.exists(TEMP_AI_ROOT):
+    os.makedirs(TEMP_AI_ROOT)
+
 TEMPLATES = [
     {
         'BACKEND': 'django.template.backends.django.DjangoTemplates',
@@ -109,11 +120,18 @@ TEMPLATES = [
 WSGI_APPLICATION = 'core.wsgi.application'
 ASGI_APPLICATION = 'core.asgi.application'
 
+# Cấu hình Redis làm Broker cho Celery
+CELERY_BROKER_URL = 'redis://127.0.0.1:6379/0'
+CELERY_RESULT_BACKEND = 'redis://127.0.0.1:6379/0'
+CELERY_ACCEPT_CONTENT = ['json']
+CELERY_TASK_SERIALIZER = 'json'
+
+# Cấu hình Channel Layer cho WebSockets
 CHANNEL_LAYERS = {
     "default": {
         "BACKEND": "channels_redis.core.RedisChannelLayer",
         "CONFIG": {
-            "hosts": [("redis://:admin@127.0.0.1:6379")],
+            "hosts": [("127.0.0.1", 6379)],
         },
     },
 }

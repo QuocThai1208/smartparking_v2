@@ -127,7 +127,7 @@ class ParkingViewSet(viewsets.GenericViewSet):
 
         res_status = status.HTTP_200_OK if success else status.HTTP_400_BAD_REQUEST
         return Response({
-            "status": "success" if success else "error",
+            "status": "loading",
             "message": msg,
             "result": result
         }, status=res_status)
@@ -141,7 +141,7 @@ class ParkingViewSet(viewsets.GenericViewSet):
 
         res_status = status.HTTP_200_OK if success else status.HTTP_400_BAD_REQUEST
         return Response({
-            "status": "success" if success else "error",
+            "status": "loading",
             "message": msg,
             "result": result
         }, status=res_status)
