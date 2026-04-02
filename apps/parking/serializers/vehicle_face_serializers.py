@@ -4,6 +4,7 @@ from apps.parking.models import VehicleFace
 
 
 class VehicleFaceSerializer(serializers.ModelSerializer):
+    vehicle_name = serializers.ReadOnlyField(source='vehicle.name')
     class Meta:
         model = VehicleFace
         fields = ['id', 'vehicle', 'owner_name', 'face_img', 'is_default', 'created_date']

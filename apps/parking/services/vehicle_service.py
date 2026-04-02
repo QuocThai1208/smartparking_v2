@@ -2,6 +2,7 @@ from typing import Any
 
 from ..models import User, Vehicle, FeeType
 from ..AI_client.predict_vehicle_client import PredictVehicleClient
+from ..utils import save_temp_file
 
 
 class VehicleService:
@@ -25,8 +26,11 @@ class VehicleService:
 
         # Reset con trỏ file sau khi read để Cloudinary vẫn lưu được ảnh
         image_front.seek(0)
+        image_plate.seek(0)
 
-        res = PredictVehicleClient.prodict_vehicle(image_front, image_plate)
+        front_path = save_temp_file(image_front)
+        plate_path = save_temp_file(image_plate)
+        res = PredictVehicleClient.prodict_vehicle(front_path, plate_path)
 
         type_data = res['attributes']['type']
 

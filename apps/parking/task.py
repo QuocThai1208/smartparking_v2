@@ -5,13 +5,15 @@ from django.db import transaction
 import numpy as np
 from apps.parking.AI_client.detect_face_client import DetectFaceClient
 from apps.parking.AI_client.predict_vehicle_client import PredictVehicleClient
-from .models import ParkingLog, Vehicle, ParkingStatus
+from .models import ParkingLog, Vehicle, ParkingStatus, Booking, BookingStatus
 from .services.parking_log_service import ParkingLogService, ParkingLogStatsService
 from ..finance.services.payment_service import PaymentService
 from django.conf import settings
+from core.celery import app
+from django.utils import timezone
 
 @shared_task
-def handle_parking_ai_task(action_type, face_img_path, img_front_path, img_plate_path):
+def handle_parking_ai_task(action_type, parking_lot_id, face_img_path, img_front_path, img_plate_path):
     """
     action_type: 'IN' hoặc 'OUT'
     Truyền đường dẫn ảnh thay vì object ảnh để Celery dễ xử lý (serialize)
@@ -25,7 +27,7 @@ def handle_parking_ai_task(action_type, face_img_path, img_front_path, img_plate
         res = PredictVehicleClient.prodict_vehicle(img_front_path, img_plate_path)
         embedding = DetectFaceClient.detect_face(face_img_path)
         if action_type == 'IN':
-            success, msg, result = process_logic_in(res, embedding)
+            success, msg, result = process_logic_in(parking_lot_id, res, embedding)
         elif action_type == 'OUT':
             success, msg, result = process_logic_out(res, embedding)
         async_to_sync(channel_layer.group_send)(
@@ -53,55 +55,74 @@ def handle_parking_ai_task(action_type, face_img_path, img_front_path, img_plate
             }
         )
 
-def process_logic_in(res, embedding):
-    plate_text = res['plate']
-    type = res['attributes']['type']
-    brand = res['attributes']['brand']
-    color = res['attributes']['color']
 
-    vehicle = Vehicle.objects.prefetch_related("faces").filter(
-        license_plate=plate_text,
-        is_approved=True
-    ).first()
+def process_logic_in(parking_lot_id, res, embedding):
+    try:
+        plate_text = res['plate']
+        type = res['attributes']['type']
+        brand = res['attributes']['brand']
+        color = res['attributes']['color']
 
-    if vehicle is None:
-        return False, "Không tìm thấy phương tiện khớp với biển số", None
+        vehicle = Vehicle.objects.prefetch_related("faces").filter(
+            license_plate=plate_text,
+            is_approved=True
+        ).first()
 
-    if vehicle.color != color or vehicle.brand != brand or vehicle.type != type:
-        return False, "Phương tiện không hợp lệ", None
+        if vehicle is None:
+            return False, "Không tìm thấy phương tiện khớp với biển số", None
 
-    all_faces = vehicle.faces.all()
-    if not all_faces.exists():
-        return False, "Phương tiện này chưa đăng ký khuôn mặt chủ xe", None
+        if vehicle.color != color or vehicle.brand != brand or vehicle.type != type:
+            return False, "Phương tiện không hợp lệ", None
 
-    best_face = facial_verification_check_in(all_faces, embedding)
-    if best_face is None:
-        return False, "Xác minh khuôn mặt thất bại", None
+        all_faces = vehicle.faces.all()
+        if not all_faces.exists():
+            return False, "Phương tiện này chưa đăng ký khuôn mặt chủ xe", None
 
-    success, msg = ParkingLogService.create_parking_log(vehicle, vehicle.type, best_face)
-
-    # gửi dữ liệu xuống client
-    if success:
-        channel_layer = get_channel_layer()
-        new_data = {
-            "type": "parking_current_stats_update",
-            "result": ParkingLogStatsService.get_parking_current_stats()
-        }
-
-        async_to_sync(channel_layer.group_send)(
-            "analytics_group",
-            {
-                "type": "send_update",
-                "data": new_data
+        best_face = facial_verification_check_in(all_faces, embedding)
+        if best_face is None:
+            return False, "Xác minh khuôn mặt thất bại", None
+        success, msg = ParkingLogService.create_parking_log(parking_lot_id, vehicle, vehicle.type, best_face)
+        # gửi dữ liệu xuống client
+        if success:
+            channel_layer = get_channel_layer()
+            new_data = {
+                "type": "parking_current_stats_update",
+                "result": ParkingLogStatsService.get_parking_current_stats()
             }
-        )
 
-    return success, msg, {
-        'plate': plate_text,
-        'type': type,
-        'brand': brand,
-        'color': color,
-    }
+            async_to_sync(channel_layer.group_send)(
+                "analytics_group",
+                {
+                    "type": "send_update",
+                    "data": new_data
+                }
+            )
+
+            # gọi cancel_task_check_booking_expired nếu check in thành công
+            now = timezone.now()
+            print(f"now: {now}")
+            current_booking = Booking.objects.filter(
+                vehicle=vehicle,
+                status=BookingStatus.ACTIVE,
+                start_time__lte=now,  # Đã đến giờ hoặc sắp đến giờ
+                expired_time__gte=now  # Chưa bị quá hạn
+            ).first()
+            if not current_booking:
+                print("Không tim thấy booking")
+            if current_booking:
+                print("tim thấy booking")
+                update_status_booking(current_booking, BookingStatus.CHECK_IN)
+
+
+        return success, msg, {
+            'plate': plate_text,
+            'type': type,
+            'brand': brand,
+            'color': color,
+        }
+    except Exception as e:
+        print(f"Lỗi {e}")
+
 
 def process_logic_out(res, embedding):
     plate_text = res['plate']
@@ -127,10 +148,13 @@ def process_logic_out(res, embedding):
     if not result_face_verification:
         return False, "Xác minh khuôn mặt thất bại", None
 
+    print("tìm thấy phương tiện.")
+
     with transaction.atomic():
         ok, log = ParkingLogService.update_parking(vehicle)
         try:
-            ok, msg = PaymentService.create_payment(vehicle.user, log.fee)
+            ok, msg = PaymentService.create_payment(vehicle.user, log.fee, 'Thanh toán luợt gửi xe')
+            print(f"ok: {ok}, msg: {msg}")
             if not ok:
                 raise ValueError(msg)
             log.save(
@@ -154,12 +178,14 @@ def process_logic_out(res, embedding):
                 "data": new_data
             }
         )
+
     return ok, msg, {
         'plate': plate_text,
         'type': type,
         'brand': brand,
         'color': color,
     }
+
 
 def face_verification_check_out(face, embedding):
     threshold = 0.5
@@ -193,3 +219,31 @@ def facial_verification_check_in(all_faces, embedding):
     if best_distance <= threshold and best_face:
         return best_face
     return None
+
+
+def cancel_task_check_booking_expired(booking: Booking):
+    if booking.task_id:
+        # terminate=True để dừng ngay lập tức nếu task đang chạy
+        app.control.revoke(booking.task_id, terminate=True)
+
+        # cập nhật trạng thái booking
+        booking.status = BookingStatus.COMPLETED
+        booking.task_id = None
+        booking.save()
+
+
+def update_status_booking(booking: Booking, status: BookingStatus ):
+    booking.status = status
+    booking.save()
+
+# Hủy booking nếu khách kh đến đúng hẹn
+@shared_task
+def check_booking_expired(booking_id):
+    try:
+        booking = Booking.objects.get(id=booking_id)
+        if booking.status == BookingStatus.ACTIVE:
+            booking.status = BookingStatus.EXPIRED
+            booking.save()
+            print(f"Booking {booking_id} đã hết hạn.")
+    except Booking.DoesNotExist:
+        pass

@@ -11,6 +11,9 @@ router.register('vehicle-faces', views.VehicleFaceViewSet, basename='vehicle-fac
 router.register('parking', views.ParkingViewSet, basename='parking')
 router.register('admin', views.AdminViewSet, basename='admin')
 router.register('stats', views.StatsViewSet, basename='stats')
+router.register('parking-lots', views.LotViewSet, basename='parking-lot')
+router.register('bookings', views.BookingViewSet, basename='booking')
+router.register('tests', views.TestViewSet, basename='test')
 
 urlpatterns = [
     path('', include(router.urls)),

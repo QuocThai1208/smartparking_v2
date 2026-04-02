@@ -160,20 +160,24 @@ class ParkingLogService:
 
     # HÀM: Tạo mới nhật kí gửi xe
     @staticmethod
-    def create_parking_log(v: Vehicle, fee_type: FeeType, face=VehicleFace) -> tuple[bool, str]:
-        exist_p = ParkingLog.objects.filter(user=v.user, vehicle=v, status=ParkingStatus.IN).first()
-        if exist_p:
-            return False, 'Phương tiện này đang có trong bãi'
-        p = ParkingLog.objects.create(
-            user=v.user,
-            vehicle_face=face,
-            vehicle=v,
-            fee_rule=FeeRule.objects.get(fee_type=fee_type),
-            status=ParkingStatus.IN
-        )
-        if p:
-            return True, "Xin mời vào."
-        return False, "Không hợp lệ."
+    def create_parking_log(parking_lot_id, v: Vehicle, fee_type: FeeType, face=VehicleFace) -> tuple[bool, str]:
+        try:
+            exist_p = ParkingLog.objects.filter(user=v.user, vehicle=v, status=ParkingStatus.IN).first()
+            if exist_p:
+                return False, 'Phương tiện này đang có trong bãi'
+            p = ParkingLog.objects.create(
+                parking_lot_id=parking_lot_id,
+                user=v.user,
+                vehicle_face=face,
+                vehicle=v,
+                fee_rule=FeeRule.objects.get(fee_type=fee_type),
+                status=ParkingStatus.IN
+            )
+            if p:
+                return True, "Xin mời vào."
+            return False, "Không hợp lệ."
+        except Exception as e:
+            print("Lỗi: ", e)
 
     @staticmethod
     def get_top5_history():

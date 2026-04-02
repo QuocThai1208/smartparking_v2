@@ -1,5 +1,6 @@
 from ..models import Vehicle, VehicleFace
 from ..AI_client.detect_face_client import DetectFaceClient
+from ..utils import save_temp_file
 
 
 class VehicleFaceService:
@@ -11,7 +12,8 @@ class VehicleFaceService:
             raise ValueError("Không tìm thấy thông tin xe.")
 
         face_img.seek(0)
-        embedding = DetectFaceClient.detect_face(face_img)
+        face_path = save_temp_file(face_img)
+        embedding = DetectFaceClient.detect_face(face_path)
         # 4. Lưu Database
         face_record = VehicleFace.objects.create(
             vehicle=vehicle,

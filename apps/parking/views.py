@@ -1,7 +1,8 @@
 from typing import Optional
-
+import json
 from datetime import date
 from django.utils import timezone
+from django.db import transaction
 
 from drf_yasg.utils import swagger_auto_schema
 from rest_framework import viewsets, generics, permissions, status, mixins
@@ -10,9 +11,14 @@ from rest_framework.exceptions import ValidationError
 from rest_framework.pagination import PageNumberPagination
 from rest_framework.response import Response
 
+from .serializers.MapSvgSerializers import MapSvgCreateSerializer
+from .serializers.booking_serializers import BookingCreateSerializer, BookingSerializer
+from .serializers.parking_lot_serializers import LotCreateSerializer, LotSerializer, LotDetailSerializer
+from .serializers.parking_slot_serializers import SlotCreateSerializer
+from .services.sensor_services import SensorService
 from ..users import perms
 
-from .models import Vehicle, FeeRule, ParkingLog, ParkingStatus
+from .models import Vehicle, FeeRule, ParkingLog, ParkingStatus, ParkingLot, ParkingSlot
 
 from .services.vehicle_service import VehicleService
 from .serializers.vehicle_serializers import VehicleSerializer, VehicleCreateSerializer
@@ -24,6 +30,7 @@ from .serializers.parking_serializers import CheckInSerializer, CheckOutSerializ
 
 from .services.parking_service import ParkingService
 from .services.parking_log_service import ParkingLogService, ParkingLogStatsService
+from .services.barrier_services import BarrierService
 
 
 class VehicleViewSet(viewsets.ModelViewSet):
@@ -49,6 +56,90 @@ class VehicleViewSet(viewsets.ModelViewSet):
     def vehicle_stats(self, request):
         user = request.user
         return Response(VehicleService.get_user_vehicle_stats(user), status=status.HTTP_200_OK)
+
+
+class LotViewSet(viewsets.GenericViewSet,
+                 mixins.CreateModelMixin,
+                 mixins.ListModelMixin,
+                 mixins.RetrieveModelMixin):
+    queryset = ParkingLot.objects.all()
+
+    def get_serializer_class(self):
+        if self.action == 'create':
+            return LotCreateSerializer
+        elif self.action == 'retrieve':
+            return LotDetailSerializer
+        return LotSerializer
+
+    def get_permissions(self):
+        if self.action in ['create']:
+            return [perms.IsManage()]
+        elif self.action in ['list']:
+            return [permissions.AllowAny()]
+        return [permissions.IsAuthenticated()]
+
+    @action(detail=True, methods=['POST'], url_path='barrier/open', permission_classes=[permissions.IsAuthenticated])
+    def barrier_open(self, request, pk=None):
+        user = request.user
+        barrier_id = request.data.get('barrier_id')
+
+        success, msg = BarrierService.open_barrier_event(open_flag=True,
+                                                         barrier_id=barrier_id,
+                                                         user_id=user.id,
+                                                         slot_id=pk)
+        success = status.HTTP_200_OK if success else status.HTTP_400_BAD_REQUEST
+        return Response({"message": msg}, status=success)
+
+
+    @action(detail=True, methods=['POST'], url_path='upload-full-map', permission_classes=[perms.IsLotOwner])
+    def create_multiple_slot(self, request, pk=None):
+        parking_lot = self.get_object()
+
+        map_data = {
+            'floor': request.data.get('floor'),
+            'floor_display': request.data.get('floor_display'),
+            'map_svg': request.data.get('map_svg')
+        }
+
+        slots_raw = request.data.get('slots', '[]')  # dữ liệu dạng json
+        try:
+            slots_data = json.loads(slots_raw)  # chuyển thành câus trúc object
+        except json.JSONDecodeError:
+            return Response({"error": "Định dạng slots không hợp lệ"}, status=400)
+
+        try:
+            with transaction.atomic():
+                # Lưu Map
+                map_serializer = MapSvgCreateSerializer(data=map_data)
+                map_serializer.is_valid(raise_exception=True)
+                map_serializer.save(parking_lot=parking_lot)
+
+                # Lưu slots
+                slot_serializer = SlotCreateSerializer(data=slots_data, many=True)
+                slot_serializer.is_valid(raise_exception=True)
+                slot_to_create = [
+                    ParkingSlot(parking_lot=parking_lot, **item)
+                    for item in slot_serializer.validated_data]
+
+                ParkingSlot.objects.bulk_create(slot_to_create)
+
+            return Response({
+                "message": "Lưu sơ đồ và slot thành công",
+            }, status=status.HTTP_201_CREATED)
+        except Exception as e:
+            return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+
+
+class BookingViewSet(viewsets.GenericViewSet,
+                     mixins.CreateModelMixin,
+                     mixins.ListModelMixin,
+                     mixins.RetrieveModelMixin,):
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get_serializer_class(self):
+        if self.action == 'create':
+            return BookingCreateSerializer
+        return BookingSerializer
 
 
 class VehicleFaceViewSet(viewsets.GenericViewSet, mixins.CreateModelMixin):
@@ -297,6 +388,23 @@ class StatsViewSet(viewsets.GenericViewSet):
             "message": "Lấy tổng số khách hàng thành công",
             "result": response
         }, status=status.HTTP_200_OK)
+
+
+class TestViewSet(viewsets.GenericViewSet):
+    @action(methods=['post'], detail=False, url_path='sensor-signa', permission_classes=[permissions.AllowAny])
+    def sensor_signal(self, request):
+        is_occupied = request.data.get('is_occupied', False)
+        vehicle_id = request.data.get('vehicle_id', '')
+        slot_id = request.data.get('slot_id', '')
+
+        result = SensorService.process_sensor_signal(is_occupied=is_occupied,
+                                                     vehicle_id=vehicle_id,
+                                                     slot_id=slot_id)
+
+        success = status.HTTP_200_OK if result else status.HTTP_400_BAD_REQUEST
+        msg = "Test cảm biến nhận xe thành công." if result else "Test cảm biến nhận xe thất bại"
+        return Response({"message": msg}, status=success)
+
 
 
 def _to_int_or_none(value: Optional[str]) -> Optional[int]:

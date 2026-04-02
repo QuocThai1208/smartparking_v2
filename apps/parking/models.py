@@ -19,8 +19,10 @@ class FeeType(models.TextChoices):
 
 class BookingStatus(models.TextChoices):
     PENDING = "PENDING", "Chờ thanh toán cọc",
-    CONFIRMED = "CONFIRMED", "Đã đặt chỗ thành công",
-    CHECKED_IN = "CHECKED_IN", "Đã vào bãi",
+    ACTIVE = "ACTIVE", "Đã đặt",
+    CHECK_IN = "CHECK_IN", "Đã vào cổng",
+    PARKING = "PARKING", "Đang thực hiện đỗ"
+    COMPLETED = "COMPLETED", "Hoàn tất",
     CANCELLED = "CANCELLED", "Khách hàng hủy",
     EXPIRED = "EXPIRED", "Quán hạn không đến (mất cọc)"
 
@@ -41,8 +43,10 @@ class ParkingLot(BaseModel):
     address = models.CharField(max_length=255)
     latitude = models.FloatField()
     longitude = models.FloatField()
-    total_slots = models.PositiveIntegerField()
-    image = CloudinaryField(null=True, blank=True)
+    moto_slots = models.PositiveIntegerField(default=0)
+    car_slots = models.PositiveIntegerField(default=0)
+    bus_slots = models.PositiveIntegerField(default=0)
+    truck_slots = models.PositiveIntegerField(default=0)
 
     # Ngưỡng hạ rào tự động
     threshold_release = models.FloatField(default=0.8)
@@ -50,6 +54,21 @@ class ParkingLot(BaseModel):
 
     def __str__(self):
         return self.name
+
+
+class MapSvg(BaseModel):
+    parking_lot = models.ForeignKey(ParkingLot, on_delete=models.CASCADE, related_name="map_svgs")
+    map_svg = CloudinaryField(resource_type="raw", null=True, blank=True, help_text="Upload file sơ đồ SVG")
+    floor = models.PositiveIntegerField(default=0)
+    floor_display = models.CharField(max_length=255)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=['parking_lot', 'floor'],
+                name='unique_map_per_floor_per_lot'
+            )
+        ]
 
 
 class FeeRule(BaseModel):
@@ -95,15 +114,19 @@ class VehicleFace(BaseModel):
 
 class ParkingSlot(BaseModel):
     parking_lot = models.ForeignKey(ParkingLot, on_delete=models.CASCADE, related_name="slots")
-    slot_number = models.CharField(max_length=50, unique=True)
+    slot_number = models.CharField(max_length=50)
+    vehicle_type = models.CharField(max_length=20, choices=FeeType.choices)
     is_vip = models.BooleanField(default=False) #Ô vip cần book trước
-    is_occupied = models.BooleanField(default=False) # Cảm biến báo có xe hay không
-    is_look_up = models.BooleanField(default=False)  # Rào chắn đang đóng hay mở
-    is_force_released = models.BooleanField(default=False) # Đánh đấu ô vip bị ép hạ rào do bãi xe quá tải
 
-    raw_index = models.PositiveIntegerField(help_text="Hàng thứ mấy")
-    column_index = models.PositiveIntegerField(help_text="Cột thứ mấy")
-    floor = models.IntegerField(default=1)
+    is_occupied = models.BooleanField(default=False) # Cảm biến báo có xe hay không
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=['parking_lot', 'slot_number'],
+                name='unique_parking_slot_per_lot'
+            )
+        ]
 
     def __str__(self):
         return self.slot_number
@@ -115,10 +138,13 @@ class Booking(BaseModel):
     slot = models.ForeignKey(ParkingSlot, on_delete=models.CASCADE, related_name="bookings")
 
     start_time = models.DateTimeField(help_text="Thời gian xe đến")
-    end_time = models.DateTimeField(null=True, blank=True, help_text="Thời gian dự kiến rời đi")
+    end_time = models.DateTimeField(help_text="Thời gian xe ra")
+    expired_time = models.DateTimeField(help_text="Thời gian hết hạn")
 
     deposit_amount = models.PositiveIntegerField(help_text="Phí đặt chỗ")
     status = models.CharField(max_length=10, choices=BookingStatus.choices, default=BookingStatus.PENDING)
+
+    task_id = models.CharField(max_length=255, null=True, blank=True) # id của task hủy booking nếu khách kh đến đúng hẹn
 
     def __str__(self):
         return f"Booking {self.vehicle.license_plate} - {self.slot.slot_number} - {self.start_time} - {self.end_time}"

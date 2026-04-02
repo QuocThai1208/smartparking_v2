@@ -90,7 +90,7 @@ class WalletViewSet(viewsets.GenericViewSet):
 
 class StatsViewSet(viewsets.GenericViewSet):
     pagination_class = PageNumberPagination
-    @action(methods=['get'], detail=False, url_path='revenue', permission_classes=[perms.IsEmployee])
+    @action(methods=['get'], detail=False, url_path='revenue', permission_classes=[permissions.IsAuthenticated])
     def get_stats_revenue(self, request):
         user = self.request.user
         try:

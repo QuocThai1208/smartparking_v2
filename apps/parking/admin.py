@@ -1,5 +1,5 @@
 from django.contrib import admin
-from .models import Vehicle, FeeRule, ParkingLog, VehicleFace, ParkingLot, ParkingSlot, Booking
+from .models import Vehicle, FeeRule, ParkingLog, VehicleFace, ParkingLot, ParkingSlot, Booking, MapSvg
 from .admin_site import custom_admin_site
 
 class VehicleAdmin(admin.ModelAdmin):
@@ -25,16 +25,21 @@ class VehicleFaceAdmin(admin.ModelAdmin):
     search_fields = ('id', 'owner_name')
 
 class ParkinglotAdmin(admin.ModelAdmin):
-    list_display  = ('id', 'owner', 'name', 'address', 'latitude', 'longitude', 'total_slots', 'image', 'threshold_release')
+    list_display  = ('id', 'owner', 'name', 'address', 'latitude', 'longitude', 'moto_slots', 'car_slots', 'bus_slots', 'truck_slots', 'threshold_release')
     search_fields = ('id', 'owner')
 
 class ParkingSlotAdmin(admin.ModelAdmin):
-    list_display  = ('id', 'parking_lot', 'slot_number', 'is_vip', 'is_occupied', 'is_look_up', 'is_force_released', 'raw_index', 'column_index', 'floor')
+    list_display  = ('id', 'parking_lot', 'slot_number', 'is_vip', 'is_occupied')
     search_fields = ('id', 'parking_lot', 'slot_number')
 
 class BookingAdmin(admin.ModelAdmin):
-    list_display = ('id', 'user', 'vehicle', 'slot', 'start_time', 'end_time', 'deposit_amount', 'status')
+    list_display = ('id', 'user', 'vehicle', 'slot', 'deposit_amount', 'status', 'start_time', 'end_time', 'expired_time', 'task_id')
     search_fields = ('id', 'user', 'vehicle', 'slot')
+
+
+class MapSvgAdmin(admin.ModelAdmin):
+    list_display = ('id', 'parking_lot', 'map_svg', 'floor', 'floor_display')
+    search_fields = ('id', 'parking_lot', 'map_svg')
 
 custom_admin_site.register(Vehicle, VehicleAdmin)
 custom_admin_site.register(FeeRule, FeeRuleAdmin)
@@ -43,3 +48,4 @@ custom_admin_site.register(VehicleFace, VehicleFaceAdmin)
 custom_admin_site.register(ParkingSlot, ParkingSlotAdmin)
 custom_admin_site.register(ParkingLot, ParkinglotAdmin)
 custom_admin_site.register(Booking, BookingAdmin)
+custom_admin_site.register(MapSvg, MapSvgAdmin)

@@ -7,21 +7,32 @@ class IsVehicleOwner(permissions.IsAuthenticated):
         return super().has_permission(request, view) and request.user == vehicle.user
 
 
+class IsLotOwner(permissions.IsAuthenticated):
+    def has_object_permission(self, request, view, parkingLot):
+        return super().has_permission(request, view) and request.user == parkingLot.owner
+
+
 class IsAdmin(permissions.IsAuthenticated):
     def has_permission(self, request, view):
         return super().has_permission(request, view) and request.user.user_role == UserRole.ADMIN
 
 
+class IsManage(permissions.IsAuthenticated):
+    def has_permission(self, request, view):
+        return super().has_permission(request, view) and request.user.user_role == UserRole.MANAGE
+
+
 class IsStaffOrAdmin(permissions.IsAuthenticated):
     def has_permission(self, request, view):
         return super().has_permission(request, view) and (
-                    request.user.user_role == UserRole.STAFF or request.user.user_role == UserRole.ADMIN)
+                request.user.user_role == UserRole.STAFF or request.user.user_role == UserRole.ADMIN)
 
 
 class IsManageOrAdmin(permissions.IsAuthenticated):
     def has_permission(self, request, view):
         return super().has_permission(request, view) and (
-                    request.user.user_role == UserRole.MANAGE or request.user.user_role == UserRole.ADMIN)
+                request.user.user_role == UserRole.MANAGE or request.user.user_role == UserRole.ADMIN)
+
 
 class IsEmployee(permissions.IsAuthenticated):
     def has_permission(self, request, view):
