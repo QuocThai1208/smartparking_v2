@@ -29,7 +29,7 @@ def handle_parking_ai_task(action_type, parking_lot_id, face_img_path, img_front
         if action_type == 'IN':
             success, msg, result = process_logic_in(parking_lot_id, res, embedding)
         elif action_type == 'OUT':
-            success, msg, result = process_logic_out(res, embedding)
+            success, msg, result = process_logic_out(parking_lot_id, res, embedding)
         async_to_sync(channel_layer.group_send)(
             "analytics_group",
             {
@@ -124,7 +124,7 @@ def process_logic_in(parking_lot_id, res, embedding):
         print(f"Lỗi {e}")
 
 
-def process_logic_out(res, embedding):
+def process_logic_out(parking_lot_id, res, embedding):
     plate_text = res['plate']
     type = res['attributes']['type']
     brand = res['attributes']['brand']
@@ -151,7 +151,7 @@ def process_logic_out(res, embedding):
     print("tìm thấy phương tiện.")
 
     with transaction.atomic():
-        ok, log = ParkingLogService.update_parking(vehicle)
+        ok, log = ParkingLogService.update_parking(parking_lot_id, vehicle)
         try:
             ok, msg = PaymentService.create_payment(vehicle.user, log.fee, 'Thanh toán luợt gửi xe')
             print(f"ok: {ok}, msg: {msg}")

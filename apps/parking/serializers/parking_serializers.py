@@ -13,6 +13,7 @@ class CheckInSerializer(serializers.Serializer):
 
 
 class CheckOutSerializer(serializers.Serializer):
+    parking_lot_id = serializers.IntegerField()
     face_img = serializers.ImageField(help_text="Ảnh chụp khuôn mặt")
     image_front = serializers.ImageField(help_text="Ảnh chụp đầu xe")
     image_plate = serializers.ImageField(help_text="Ảnh biển số xe")

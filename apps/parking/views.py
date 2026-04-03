@@ -13,12 +13,16 @@ from rest_framework.response import Response
 
 from .serializers.MapSvgSerializers import MapSvgCreateSerializer
 from .serializers.booking_serializers import BookingCreateSerializer, BookingSerializer
+from .serializers.parking_lot_policy_serializers import LotPolicyCreateSerializer, BaseLotPolicySerializer
 from .serializers.parking_lot_serializers import LotCreateSerializer, LotSerializer, LotDetailSerializer
 from .serializers.parking_slot_serializers import SlotCreateSerializer
+from .serializers.price_strategy_serializers import PriceStrategySerializer
+from .serializers.public_holiday_serializers import BasePublicHolidaySerializer
 from .services.sensor_services import SensorService
 from ..users import perms
 
-from .models import Vehicle, FeeRule, ParkingLog, ParkingStatus, ParkingLot, ParkingSlot
+from .models import Vehicle, FeeRule, ParkingLog, ParkingStatus, ParkingLot, ParkingSlot, ParkingLotPolicy, \
+    PublicHoliday, PriceStrategy, PriceStrategyTemplate
 
 from .services.vehicle_service import VehicleService
 from .serializers.vehicle_serializers import VehicleSerializer, VehicleCreateSerializer
@@ -69,6 +73,8 @@ class LotViewSet(viewsets.GenericViewSet,
             return LotCreateSerializer
         elif self.action == 'retrieve':
             return LotDetailSerializer
+        elif self.action == 'add_policies':
+            return LotPolicyCreateSerializer
         return LotSerializer
 
     def get_permissions(self):
@@ -89,7 +95,6 @@ class LotViewSet(viewsets.GenericViewSet,
                                                          slot_id=pk)
         success = status.HTTP_200_OK if success else status.HTTP_400_BAD_REQUEST
         return Response({"message": msg}, status=success)
-
 
     @action(detail=True, methods=['POST'], url_path='upload-full-map', permission_classes=[perms.IsLotOwner])
     def create_multiple_slot(self, request, pk=None):
@@ -129,11 +134,28 @@ class LotViewSet(viewsets.GenericViewSet,
         except Exception as e:
             return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
 
+    @action(detail=True, methods=['POST', 'GET'], url_path='policies', permission_classes=[perms.IsLotOwner])
+    def add_policies(self, request, pk=None):
+        if request.method == 'POST':
+            serializer = self.get_serializer(data=request.data)
+            serializer.is_valid(raise_exception=True)
+            data = serializer.save()
+            return Response({
+                "message": "Thêm chính sách thành công",
+                "result": BaseLotPolicySerializer(data).data
+            }, status=status.HTTP_201_CREATED)
+        policies = ParkingLotPolicy.objects.filter(parking_lot_id=pk).select_related('strategy', 'holiday')
+        serializer = BaseLotPolicySerializer(policies, many=True)
+        return Response({
+            "message": "Lấy danh sách chính sách thành công",
+            "result": serializer.data
+        }, status=status.HTTP_200_OK)
+
 
 class BookingViewSet(viewsets.GenericViewSet,
                      mixins.CreateModelMixin,
                      mixins.ListModelMixin,
-                     mixins.RetrieveModelMixin,):
+                     mixins.RetrieveModelMixin, ):
     permission_classes = [permissions.IsAuthenticated]
 
     def get_serializer_class(self):
@@ -197,6 +219,15 @@ class ParkingLogViewSet(viewsets.ViewSet, generics.ListAPIView):
         now = date.today()
         count_today = ParkingLog.objects.filter(created_date__date=now).count()
         return Response(count_today, status=status.HTTP_200_OK)
+
+    @action(methods=['get'], detail=True, url_path="fee_detail")
+    def get_fee_detail(self, request, pk=None):
+        log = self.get_object()
+        final_fee, fee_detail = ParkingLogService.calculate_fee(log.fee_rule, log.parking_lot.id, log.check_in, log.check_out)
+        return Response({
+            "final_fee": final_fee,
+            "fee_detail": fee_detail
+        }, status=status.HTTP_200_OK)
 
 
 class ParkingViewSet(viewsets.GenericViewSet):
@@ -390,6 +421,20 @@ class StatsViewSet(viewsets.GenericViewSet):
         }, status=status.HTTP_200_OK)
 
 
+class PublicHolidayViewSet(viewsets.GenericViewSet,
+                           mixins.ListModelMixin,):
+    permission_classes = [perms.IsEmployee]
+    serializer_class = BasePublicHolidaySerializer
+    queryset = PublicHoliday.objects.all()
+
+
+class PriceStrategyViewSet(viewsets.GenericViewSet,
+                           mixins.ListModelMixin,):
+    permission_classes = [perms.IsEmployee]
+    serializer_class = PriceStrategySerializer
+    queryset = PriceStrategyTemplate.objects.all()
+
+
 class TestViewSet(viewsets.GenericViewSet):
     @action(methods=['post'], detail=False, url_path='sensor-signa', permission_classes=[permissions.AllowAny])
     def sensor_signal(self, request):
@@ -404,7 +449,6 @@ class TestViewSet(viewsets.GenericViewSet):
         success = status.HTTP_200_OK if result else status.HTTP_400_BAD_REQUEST
         msg = "Test cảm biến nhận xe thành công." if result else "Test cảm biến nhận xe thất bại"
         return Response({"message": msg}, status=success)
-
 
 
 def _to_int_or_none(value: Optional[str]) -> Optional[int]:

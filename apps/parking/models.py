@@ -10,6 +10,12 @@ class ParkingStatus(models.TextChoices):
     OUT = "OUT", "Đã lấy xe"
 
 
+class PriceStrategy(models.TextChoices):
+    WEEKEND = "WEEKEND", "Cuối tuần",
+    HOLIDAY = "HOLIDAY", "Ngày lễ",
+    OCCUPANCY = "OCCUPANCY", "Xe đông"
+
+
 class FeeType(models.TextChoices):
     MOTORCYCLE = "MOTORCYCLE", "Xe máy"
     CAR = "CAR", "Ô tô"
@@ -50,7 +56,6 @@ class ParkingLot(BaseModel):
 
     # Ngưỡng hạ rào tự động
     threshold_release = models.FloatField(default=0.8)
-
 
     def __str__(self):
         return self.name
@@ -116,9 +121,9 @@ class ParkingSlot(BaseModel):
     parking_lot = models.ForeignKey(ParkingLot, on_delete=models.CASCADE, related_name="slots")
     slot_number = models.CharField(max_length=50)
     vehicle_type = models.CharField(max_length=20, choices=FeeType.choices)
-    is_vip = models.BooleanField(default=False) #Ô vip cần book trước
+    is_vip = models.BooleanField(default=False)  # Ô vip cần book trước
 
-    is_occupied = models.BooleanField(default=False) # Cảm biến báo có xe hay không
+    is_occupied = models.BooleanField(default=False)  # Cảm biến báo có xe hay không
 
     class Meta:
         constraints = [
@@ -144,7 +149,8 @@ class Booking(BaseModel):
     deposit_amount = models.PositiveIntegerField(help_text="Phí đặt chỗ")
     status = models.CharField(max_length=10, choices=BookingStatus.choices, default=BookingStatus.PENDING)
 
-    task_id = models.CharField(max_length=255, null=True, blank=True) # id của task hủy booking nếu khách kh đến đúng hẹn
+    task_id = models.CharField(max_length=255, null=True,
+                               blank=True)  # id của task hủy booking nếu khách kh đến đúng hẹn
 
     def __str__(self):
         return f"Booking {self.vehicle.license_plate} - {self.slot.slot_number} - {self.start_time} - {self.end_time}"
@@ -171,15 +177,30 @@ class ParkingLog(BaseModel):
         return f"Log {self.id} - {self.vehicle.license_plate}"
 
 
-# class DynamicPriceRule(BaseModel):
-#     """Quy tắc tăng giảm giá theo điều kiện"""
-#     name = models.CharField(max_length=50)
-#     parking_lot = models.ForeignKey(ParkingLot, on_delete=models.CASCADE, related_name="dynamic_price_rules")
-#
-#     start_date = models.DateField()
-#     end_date = models.DateField()
-#
-#     # Hệ số nhận
-#     multiplier = models.FloatField(default=1)
-#     # Độ ưu tiên
-#     priority = models.IntegerField(default=0, help_text="Độ ưu tiên nếu có nhiều quy tắc trùng nhau")
+class PriceStrategyTemplate(BaseModel):
+    code = models.CharField(max_length=50, unique=True, choices=PriceStrategy.choices, help_text="Vd: WEEKEND, HOLIDAY, OCCUPANCY")
+    description = models.TextField(blank=True)
+
+    def __str__(self):
+        return self.code
+
+
+class PublicHoliday(models.Model):
+    date = models.DateField(unique=True)
+    name = models.CharField(max_length=100)
+
+    def __str__(self):
+        return f"{self.date}: {self.name}"
+
+
+class ParkingLotPolicy(BaseModel):
+    parking_lot = models.ForeignKey(ParkingLot, on_delete=models.CASCADE, related_name='policies')
+    strategy = models.ForeignKey(PriceStrategyTemplate, on_delete=models.CASCADE)
+    holiday = models.ForeignKey(PublicHoliday, on_delete=models.CASCADE, null=True, blank=True)
+    multiplier = models.FloatField(default=1.0, help_text="Hệ số nhân giá (Vd: 1.5)")
+
+    class Meta:
+        unique_together = ('parking_lot', 'strategy', 'holiday')
+
+    def __str__(self):
+        return f"{self.parking_lot.name} - {self.strategy.code}: x{self.multiplier}"

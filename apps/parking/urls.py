@@ -13,6 +13,8 @@ router.register('admin', views.AdminViewSet, basename='admin')
 router.register('stats', views.StatsViewSet, basename='stats')
 router.register('parking-lots', views.LotViewSet, basename='parking-lot')
 router.register('bookings', views.BookingViewSet, basename='booking')
+router.register('public-holidays', views.PublicHolidayViewSet, basename='public-holiday')
+router.register('price-strategy', views.PriceStrategyViewSet, basename='price-strategy')
 router.register('tests', views.TestViewSet, basename='test')
 
 urlpatterns = [

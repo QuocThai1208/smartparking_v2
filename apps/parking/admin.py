@@ -1,5 +1,5 @@
 from django.contrib import admin
-from .models import Vehicle, FeeRule, ParkingLog, VehicleFace, ParkingLot, ParkingSlot, Booking, MapSvg
+from .models import Vehicle, FeeRule, ParkingLog, VehicleFace, ParkingLot, ParkingSlot, Booking, MapSvg, ParkingLotPolicy, PublicHoliday, PriceStrategyTemplate
 from .admin_site import custom_admin_site
 
 class VehicleAdmin(admin.ModelAdmin):
@@ -41,6 +41,18 @@ class MapSvgAdmin(admin.ModelAdmin):
     list_display = ('id', 'parking_lot', 'map_svg', 'floor', 'floor_display')
     search_fields = ('id', 'parking_lot', 'map_svg')
 
+class PriceStrategyTemplateAdmin(admin.ModelAdmin):
+    list_display = ('id', 'code', 'description')
+    search_fields = ('id', 'code')
+
+class PublicHolidayAdmin(admin.ModelAdmin):
+    list_display = ('id', 'date', 'name')
+    search_fields = ('id', 'date', 'name')
+
+class ParkingLotPolicyAdmin(admin.ModelAdmin):
+    list_display = ('id', 'parking_lot', 'strategy', 'holiday', 'multiplier')
+    search_fields = ('id', 'strategy')
+
 custom_admin_site.register(Vehicle, VehicleAdmin)
 custom_admin_site.register(FeeRule, FeeRuleAdmin)
 custom_admin_site.register(ParkingLog, ParkingLogAdmin)
@@ -49,3 +61,6 @@ custom_admin_site.register(ParkingSlot, ParkingSlotAdmin)
 custom_admin_site.register(ParkingLot, ParkinglotAdmin)
 custom_admin_site.register(Booking, BookingAdmin)
 custom_admin_site.register(MapSvg, MapSvgAdmin)
+custom_admin_site.register(PriceStrategyTemplate, PriceStrategyTemplateAdmin)
+custom_admin_site.register(PublicHoliday, PublicHolidayAdmin)
+custom_admin_site.register(ParkingLotPolicy, ParkingLotPolicyAdmin)

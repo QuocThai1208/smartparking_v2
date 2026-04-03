@@ -8,9 +8,11 @@ from typing import Optional, Any
 
 from rest_framework.exceptions import ValidationError
 
+from .price_services import PriceEngine
 from ...users.models import UserRole, User
 from ..models import ParkingLog, ParkingStatus, Vehicle, FeeRule, FeeType, VehicleFace
 from django.db.models import Sum, Count
+from datetime import timedelta
 
 
 class ParkingLogStatsService:
@@ -129,16 +131,55 @@ class ParkingLogStatsService:
 class ParkingLogService:
     # HÀM: tính phí giữ xe
     @staticmethod
-    def calculate_fee(minutes: int, fee_rule: FeeRule) -> int:
-        if fee_rule.fee_type in [FeeType.MOTORCYCLE, FeeType.CAR]:
-            day = max(1, math.ceil(minutes / (24 * 60)))
-            return day * fee_rule.amount
+    def calculate_fee(fee_rule: FeeRule, parking_lot_id, start_time, end_time,):
+        try:
+            if fee_rule.fee_type not in [FeeType.MOTORCYCLE, FeeType.CAR, FeeType.BUS, FeeType.TRUCK]:
+                raise ValueError(f"Unsupport fee_type: {fee_rule.fee_type}")
 
-        raise ValueError(f"Unsupport fee_type: {fee_rule.fee_type}")
+            final_fee = 0
+            fee_detail = []
+
+            # Tính tổng số phút đỗ xe
+            total_minutes = (end_time - start_time).total_seconds() / 60
+            if total_minutes <= 0:
+                return 0, []
+
+            remaining_minutes = total_minutes
+            temp_time = start_time
+
+            # tính phí theo từng ngày
+            while remaining_minutes > 0:
+                # Lấy giá tại thời điểm đang xét (temp_time)
+                price_info = PriceEngine.calculate_final_price(parking_lot_id, fee_rule.amount, temp_time)
+                unit_fee = price_info['total_fee']
+
+                fee_detail.append({
+                    "date": temp_time.date(),
+                    "base_price": price_info['base_price'],
+                    "surcharge": price_info['surcharge'],
+                    "total_fee": price_info['total_fee'],
+                    "note": price_info['note']
+                })
+
+                # Nếu còn lại dưới 24h nhưng vẫn còn phút -> tính tròn 1 ngày
+                if remaining_minutes <= 1440:
+                    final_fee += unit_fee
+                    break
+                else:
+                    final_fee += unit_fee
+                    remaining_minutes -= 1440
+                    temp_time += timedelta(days=1)  # Nhảy sang mốc 24h tiếp theo
+
+
+
+            return int(final_fee), fee_detail
+        except Exception as e:
+            raise ValidationError(f"detail: {e}")
+
 
     # HÀM: Cập nhật nhật kí gửi xe
     @staticmethod
-    def update_parking(v: Vehicle, ):
+    def update_parking(parking_lot_id, v: Vehicle, ):
         try:
             log = (
                 ParkingLog.objects
@@ -153,9 +194,12 @@ class ParkingLogService:
         now = timezone.now()
         log.check_out = now
         duration = int((log.check_out - log.check_in).total_seconds() // 60)
+
         log.duration_minutes = duration
         log.status = ParkingStatus.OUT
-        log.fee = ParkingLogService.calculate_fee(duration, log.fee_rule)
+
+        total_fee , fee_detail = ParkingLogService.calculate_fee(log.fee_rule, parking_lot_id, log.check_in, log.check_out)
+        log.fee = total_fee
         return True, log
 
     # HÀM: Tạo mới nhật kí gửi xe
