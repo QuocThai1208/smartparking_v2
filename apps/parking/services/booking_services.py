@@ -4,6 +4,7 @@ from django.utils import timezone
 from django.db import transaction
 
 from apps.parking.models import Vehicle, ParkingSlot, Booking, FeeRule, BookingStatus
+from .parking_log_service import ParkingLogService
 from ..task import check_booking_expired
 from ...finance.services.payment_service import PaymentService
 from ...users.models import User, UserRole
@@ -65,7 +66,7 @@ class BookingService:
            raise serializers.ValidationError({"vehicle": f"Xe này hiện đã một vị trí khác trong khung giờ bạn chon."})
 
     @staticmethod
-    def create_booking(user: User, vehicle: Vehicle, slot: ParkingSlot, start_time, end_time):
+    def create_booking(user: User, vehicle: Vehicle, slot: ParkingSlot, lot: ParkingSlot, start_time, end_time):
         BookingService.booking_validation(user=user,
                                           vehicle=vehicle,
                                           slot=slot,
@@ -78,13 +79,16 @@ class BookingService:
             active=True,
         ).first()
 
-        deposit_amount = fee_rule.amount / 2
+        parking_lot_id = slot.parking_lot.id
 
-        expired_time = start_time + timedelta(hours=0.5)
+        final_fee, fee_detail =ParkingLogService.calculate_fee(fee_rule, parking_lot_id, start_time, end_time)
+
+        deposit_amount = 15000
+        fee = final_fee
 
         with transaction.atomic():
             try:
-                ok, msg = PaymentService.create_payment(user, deposit_amount,
+                ok, msg = PaymentService.create_payment(user, deposit_amount+fee,
                                                         f'Thanh toán phí đặt cho vị trí {slot.slot_number}')
                 if not ok:
                     raise serializers.ValidationError(msg)
@@ -92,17 +96,18 @@ class BookingService:
                     user=user,
                     vehicle=vehicle,
                     slot=slot,
+                    lot=lot,
                     start_time=start_time,
                     end_time=end_time,
-                    expired_time=expired_time,
                     deposit_amount=deposit_amount,
+                    fee=fee,
                     status=BookingStatus.ACTIVE
                 )
 
                 # eta yêu cầu thời gian dạng UTC
                 task = check_booking_expired.apply_async(
                     args=[booking.id],
-                    eta=booking.expired_time
+                    eta=booking.end_time
                 )
 
                 booking.task_id = task.id

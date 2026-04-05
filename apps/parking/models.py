@@ -1,3 +1,5 @@
+from datetime import datetime
+
 from django.utils import timezone
 
 from cloudinary.models import CloudinaryField
@@ -24,13 +26,11 @@ class FeeType(models.TextChoices):
 
 
 class BookingStatus(models.TextChoices):
-    PENDING = "PENDING", "Chờ thanh toán cọc",
+    PENDING = "PENDING", "Chờ thanh toán",
     ACTIVE = "ACTIVE", "Đã đặt",
-    CHECK_IN = "CHECK_IN", "Đã vào cổng",
-    PARKING = "PARKING", "Đang thực hiện đỗ"
+    PARKING = "PARKING", "Đang đỗ xe",
     COMPLETED = "COMPLETED", "Hoàn tất",
-    CANCELLED = "CANCELLED", "Khách hàng hủy",
-    EXPIRED = "EXPIRED", "Quán hạn không đến (mất cọc)"
+    EXPIRED = "EXPIRED", "Hết hạn sử dụng"
 
 
 class BaseModel(models.Model):
@@ -125,6 +125,8 @@ class ParkingSlot(BaseModel):
 
     is_occupied = models.BooleanField(default=False)  # Cảm biến báo có xe hay không
 
+    current_vehicle = models.ForeignKey(Vehicle, null=True, blank=True, help_text="Xe đang đỗ trông ô booking", related_name="slots", on_delete=models.SET_NULL)
+
     class Meta:
         constraints = [
             models.UniqueConstraint(
@@ -141,12 +143,18 @@ class Booking(BaseModel):
     user = models.ForeignKey(User, on_delete=models.CASCADE, related_name="bookings")
     vehicle = models.ForeignKey(Vehicle, on_delete=models.CASCADE, related_name="bookings")
     slot = models.ForeignKey(ParkingSlot, on_delete=models.CASCADE, related_name="bookings")
+    lot = models.ForeignKey(ParkingLot, on_delete=models.CASCADE, related_name="bookings")
 
     start_time = models.DateTimeField(help_text="Thời gian xe đến")
     end_time = models.DateTimeField(help_text="Thời gian xe ra")
-    expired_time = models.DateTimeField(help_text="Thời gian hết hạn")
 
-    deposit_amount = models.PositiveIntegerField(help_text="Phí đặt chỗ")
+    deposit_amount = models.PositiveIntegerField(
+        default=0,
+        help_text="Phí đặt chỗ (20% của total_fee)")
+    fee = models.PositiveIntegerField(
+        default=0,
+        help_text="Tổng tiền đỗ xe dự tính (100% tiền thuê chỗ)")
+
     status = models.CharField(max_length=10, choices=BookingStatus.choices, default=BookingStatus.PENDING)
 
     task_id = models.CharField(max_length=255, null=True,
@@ -162,10 +170,11 @@ class ParkingLog(BaseModel):
     vehicle_face = models.ForeignKey(VehicleFace, on_delete=models.CASCADE, related_name="parking_logs")
     vehicle = models.ForeignKey(Vehicle, on_delete=models.CASCADE, related_name="parking_logs")
     fee_rule = models.ForeignKey(FeeRule, on_delete=models.CASCADE, related_name="parking_logs")
-    check_in = models.DateTimeField(default=timezone.now)
+    check_in = models.DateTimeField(default=datetime.now)
     check_out = models.DateTimeField(null=True, blank=True)
     duration_minutes = models.PositiveIntegerField(editable=False, null=True, blank=True)
     fee = models.PositiveIntegerField(null=True, blank=True, help_text="Phí phải trả cho lượt này")
+    final_amount_to_pay = models.PositiveIntegerField(null=True, blank=True, help_text="Số tiền thực tế thu tại cổng")
     status = models.CharField(max_length=4, choices=ParkingStatus.choices, default=ParkingStatus.IN)
 
     def save(self, *args, **kwargs):

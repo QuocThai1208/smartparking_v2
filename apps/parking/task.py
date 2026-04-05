@@ -98,22 +98,6 @@ def process_logic_in(parking_lot_id, res, embedding):
                 }
             )
 
-            # gọi cancel_task_check_booking_expired nếu check in thành công
-            now = timezone.now()
-            print(f"now: {now}")
-            current_booking = Booking.objects.filter(
-                vehicle=vehicle,
-                status=BookingStatus.ACTIVE,
-                start_time__lte=now,  # Đã đến giờ hoặc sắp đến giờ
-                expired_time__gte=now  # Chưa bị quá hạn
-            ).first()
-            if not current_booking:
-                print("Không tim thấy booking")
-            if current_booking:
-                print("tim thấy booking")
-                update_status_booking(current_booking, BookingStatus.CHECK_IN)
-
-
         return success, msg, {
             'plate': plate_text,
             'type': type,
@@ -153,12 +137,13 @@ def process_logic_out(parking_lot_id, res, embedding):
     with transaction.atomic():
         ok, log = ParkingLogService.update_parking(parking_lot_id, vehicle)
         try:
-            ok, msg = PaymentService.create_payment(vehicle.user, log.fee, 'Thanh toán luợt gửi xe')
+            if log.final_amount_to_pay > 0:
+                ok, msg = PaymentService.create_payment(vehicle.user, log.final_amount_to_pay, 'Thanh toán luợt gửi xe')
             print(f"ok: {ok}, msg: {msg}")
             if not ok:
                 raise ValueError(msg)
             log.save(
-                update_fields=['check_out', 'duration_minutes', 'status', 'fee']
+                update_fields=['check_out', 'duration_minutes', 'status', 'fee', 'final_amount_to_pay']
             )
         except Exception as e:
             return ok, "Có lỗi " + str(e), None
@@ -219,17 +204,6 @@ def facial_verification_check_in(all_faces, embedding):
     if best_distance <= threshold and best_face:
         return best_face
     return None
-
-
-def cancel_task_check_booking_expired(booking: Booking):
-    if booking.task_id:
-        # terminate=True để dừng ngay lập tức nếu task đang chạy
-        app.control.revoke(booking.task_id, terminate=True)
-
-        # cập nhật trạng thái booking
-        booking.status = BookingStatus.COMPLETED
-        booking.task_id = None
-        booking.save()
 
 
 def update_status_booking(booking: Booking, status: BookingStatus ):

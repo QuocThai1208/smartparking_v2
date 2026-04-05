@@ -1,4 +1,4 @@
-from datetime import date
+from datetime import date, datetime
 import math
 import calendar
 
@@ -10,7 +10,7 @@ from rest_framework.exceptions import ValidationError
 
 from .price_services import PriceEngine
 from ...users.models import UserRole, User
-from ..models import ParkingLog, ParkingStatus, Vehicle, FeeRule, FeeType, VehicleFace
+from ..models import ParkingLog, ParkingStatus, Vehicle, FeeRule, FeeType, VehicleFace, Booking, BookingStatus
 from django.db.models import Sum, Count
 from datetime import timedelta
 
@@ -136,48 +136,54 @@ class ParkingLogService:
             if fee_rule.fee_type not in [FeeType.MOTORCYCLE, FeeType.CAR, FeeType.BUS, FeeType.TRUCK]:
                 raise ValueError(f"Unsupport fee_type: {fee_rule.fee_type}")
 
+            if (end_time - start_time).total_seconds() <= 0:
+                return 0, []
+
             final_fee = 0
             fee_detail = []
 
-            # Tính tổng số phút đỗ xe
-            total_minutes = (end_time - start_time).total_seconds() / 60
-            if total_minutes <= 0:
-                return 0, []
+            current_time = start_time
 
-            remaining_minutes = total_minutes
-            temp_time = start_time
+            while current_time < end_time:
+                # Xác định điểm kết thúc là cuối (23:59:59) hay end_time
+                next_day_start = (current_time + timedelta(days=1)).replace(hour=0, minute=0, second=0, microsecond=0)
+                segment_end = min(next_day_start, end_time)
 
-            # tính phí theo từng ngày
-            while remaining_minutes > 0:
-                # Lấy giá tại thời điểm đang xét (temp_time)
-                price_info = PriceEngine.calculate_final_price(parking_lot_id, fee_rule.amount, temp_time)
-                unit_fee = price_info['total_fee']
+                # Tính số giờ trong phân đoạn của ngày này
+                segment_minutes = (segment_end - current_time).total_seconds() / 60
+                segment_hours = math.ceil(segment_minutes / 60)
 
+                # Lấy giá của ngày này
+                price_info = PriceEngine.calculate_final_price(
+                    parking_lot_id,
+                    fee_rule.amount,
+                    current_time
+                )
+
+                unit_price = price_info['total_fee']  # Giá mỗi giờ
+                day_fee = segment_hours * unit_price
+                final_fee += day_fee
+
+                # 4. Lưu chi tiết cực kỳ ngắn gọn theo ngày
                 fee_detail.append({
-                    "date": temp_time.date(),
-                    "base_price": price_info['base_price'],
+                    "date": current_time.strftime("%d/%m/%Y"),
+                    "period": f"{current_time.strftime('%H:%M')} - {segment_end.strftime('%H:%M')}",
+                    "hours": segment_hours,
+                    "unit_price": unit_price,
                     "surcharge": price_info['surcharge'],
-                    "total_fee": price_info['total_fee'],
-                    "note": price_info['note']
+                    "note": price_info['note'],  # Ví dụ: "Phụ phí cuối tuần"
+                    "sub_total": day_fee
                 })
 
-                # Nếu còn lại dưới 24h nhưng vẫn còn phút -> tính tròn 1 ngày
-                if remaining_minutes <= 1440:
-                    final_fee += unit_fee
-                    break
-                else:
-                    final_fee += unit_fee
-                    remaining_minutes -= 1440
-                    temp_time += timedelta(days=1)  # Nhảy sang mốc 24h tiếp theo
-
-
+                # Nhảy sang ngày tiếp theo
+                current_time = segment_end
 
             return int(final_fee), fee_detail
         except Exception as e:
             raise ValidationError(f"detail: {e}")
 
 
-    # HÀM: Cập nhật nhật kí gửi xe
+    # HÀM: Cập nhật nhật phí gửi xe
     @staticmethod
     def update_parking(parking_lot_id, v: Vehicle, ):
         try:
@@ -193,13 +199,65 @@ class ParkingLogService:
 
         now = timezone.now()
         log.check_out = now
-        duration = int((log.check_out - log.check_in).total_seconds() // 60)
-
-        log.duration_minutes = duration
         log.status = ParkingStatus.OUT
+        duration = (log.check_out - log.check_in).total_seconds() / 60
+        log.duration_minutes = duration
 
-        total_fee , fee_detail = ParkingLogService.calculate_fee(log.fee_rule, parking_lot_id, log.check_in, log.check_out)
-        log.fee = total_fee
+        bookings = Booking.objects.filter(
+            vehicle=v,
+            lot_id=parking_lot_id,
+            status=BookingStatus.PARKING,
+            start_time__lt=now,
+            end_time__gt=log.check_in
+        ).order_by('start_time')
+
+        total_prepaid = 0
+        penalty_fee = 0
+
+        # Danh sách các mốc thời gian bận (đã có booking)
+        occupied_times = []
+
+        if bookings.exists():
+            for b in bookings:
+                total_prepaid += b.fee
+
+                b_start = max(log.check_in, b.start_time)
+                b_end = min(now, b.end_time)
+                occupied_times.append((b_start, b_end))
+
+                if now > b.end_time and b.vehicle==b.slot.current_vehicle:
+                    penalty_fee += 50000  # Mức phạt cố định cho việc chiếm dụng ô đặt trước
+
+                b.status = BookingStatus.COMPLETED
+                b.save()
+
+        # TÌM KHOẢNG TRỐNG (Thời gian kh có trong booking)
+        # duyệt từ lúc check_in đến check_out để tìm các kẽ hở
+        extra_time_fee = 0
+
+        last_check = log.check_in
+        for b_start, b_end in occupied_times:
+            if last_check < b_start:
+                # Có khoảng trống từ last_check đến b_start
+                fee, detail = ParkingLogService.calculate_fee(
+                    log.fee_rule, parking_lot_id, last_check, b_start
+                )
+                extra_time_fee += fee
+            # Nhảy mốc kiểm tra lên cuối booking này
+            last_check = max(last_check, b_end)
+
+        # Kiểm tra khoảng trống cuối cùng (từ booking cuối đến lúc check-out)
+        if last_check < now - timedelta(minutes=5):
+            fee, detail = ParkingLogService.calculate_fee(
+                log.fee_rule, parking_lot_id, last_check, now
+            )
+            extra_time_fee += fee
+
+        # Tổng hợp tài chính
+        log.fee = total_prepaid + extra_time_fee + penalty_fee
+        log.final_amount_to_pay = extra_time_fee + penalty_fee
+
+        log.save()
         return True, log
 
     # HÀM: Tạo mới nhật kí gửi xe
@@ -215,7 +273,8 @@ class ParkingLogService:
                 vehicle_face=face,
                 vehicle=v,
                 fee_rule=FeeRule.objects.get(fee_type=fee_type),
-                status=ParkingStatus.IN
+                status=ParkingStatus.IN,
+                check_in=datetime.now()
             )
             if p:
                 return True, "Xin mời vào."

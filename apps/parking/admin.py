@@ -15,7 +15,7 @@ class FeeRuleAdmin(admin.ModelAdmin):
     ordering      = ('-effective_from',)
 
 class ParkingLogAdmin(admin.ModelAdmin):
-    list_display  = ('id', 'user', 'vehicle', 'vehicle_face', 'check_in', 'check_out', 'duration_minutes', 'fee', 'status')
+    list_display  = ('id', 'user', 'vehicle', 'vehicle_face', 'check_in', 'check_out', 'duration_minutes', 'fee', 'final_amount_to_pay', 'status')
     search_fields = ('id', 'user__full_name', 'vehicle__license_plate')
     list_filter   = ('status',)
     autocomplete_fields = ('user', 'vehicle', 'fee_rule')
@@ -29,11 +29,11 @@ class ParkinglotAdmin(admin.ModelAdmin):
     search_fields = ('id', 'owner')
 
 class ParkingSlotAdmin(admin.ModelAdmin):
-    list_display  = ('id', 'parking_lot', 'slot_number', 'is_vip', 'is_occupied')
+    list_display  = ('id', 'parking_lot', 'slot_number', 'is_vip', 'is_occupied', 'current_vehicle')
     search_fields = ('id', 'parking_lot', 'slot_number')
 
 class BookingAdmin(admin.ModelAdmin):
-    list_display = ('id', 'user', 'vehicle', 'slot', 'deposit_amount', 'status', 'start_time', 'end_time', 'expired_time', 'task_id')
+    list_display = ('id', 'user', 'vehicle', 'slot', 'deposit_amount', 'status', 'start_time', 'end_time', 'fee', 'task_id')
     search_fields = ('id', 'user', 'vehicle', 'slot')
 
 
@@ -50,7 +50,7 @@ class PublicHolidayAdmin(admin.ModelAdmin):
     search_fields = ('id', 'date', 'name')
 
 class ParkingLotPolicyAdmin(admin.ModelAdmin):
-    list_display = ('id', 'parking_lot', 'strategy', 'holiday', 'multiplier')
+    list_display = ('id', 'parking_lot', 'strategy', 'holiday', 'multiplier', 'active')
     search_fields = ('id', 'strategy')
 
 custom_admin_site.register(Vehicle, VehicleAdmin)

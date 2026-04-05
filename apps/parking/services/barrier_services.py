@@ -1,6 +1,6 @@
 from django.utils import timezone
 
-from apps.parking.models import Booking, BookingStatus
+from apps.parking.models import Booking, BookingStatus, ParkingSlot
 
 
 class BarrierService:
@@ -12,24 +12,20 @@ class BarrierService:
     def open_barrier_event(open_flag, barrier_id, user_id, slot_id):
         # kiểm tra booking
         now = timezone.now()
-
+        print(now)
+        print(open_flag, barrier_id, user_id, slot_id)
         booking = Booking.objects.filter(
             user_id=user_id,
             slot_id=slot_id,
-            status=BookingStatus.CHECK_IN,
+            status=BookingStatus.ACTIVE ,
             start_time__lte=now,  # Đã đến giờ hoặc sắp đến giờ
-            expired_time__gte=now  # Chưa bị quá hạn
+            end_time__gte=now  # Chưa bị quá hạn
         ).first()
-
         if not booking:
             return False, "Bạn chưa đặt chỗ cho vị trí này."
 
         vehicle_id = booking.vehicle.id
-
         # Yêu cầu phần cứng mở cổng
         if open_flag:
             BarrierService.send_signal_to_hardware(True, vehicle_id, barrier_id)
-
-        booking.status = BookingStatus.PARKING
-        booking.save()
         return True, "Mở cổng thành công."

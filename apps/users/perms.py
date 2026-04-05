@@ -22,6 +22,11 @@ class IsManage(permissions.IsAuthenticated):
         return super().has_permission(request, view) and request.user.user_role == UserRole.MANAGE
 
 
+class IsCustomer(permissions.IsAuthenticated):
+    def has_permission(self, request, view):
+        return super().has_permission(request, view) and request.user.user_role == UserRole.CUSTOMER
+
+
 class IsStaffOrAdmin(permissions.IsAuthenticated):
     def has_permission(self, request, view):
         return super().has_permission(request, view) and (

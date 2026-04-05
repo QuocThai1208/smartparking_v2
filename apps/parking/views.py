@@ -1,8 +1,9 @@
 from typing import Optional
 import json
-from datetime import date
+from datetime import date, datetime
 from django.utils import timezone
 from django.db import transaction
+from django.utils.timezone import make_aware
 
 from drf_yasg.utils import swagger_auto_schema
 from rest_framework import viewsets, generics, permissions, status, mixins
@@ -12,17 +13,20 @@ from rest_framework.pagination import PageNumberPagination
 from rest_framework.response import Response
 
 from .serializers.MapSvgSerializers import MapSvgCreateSerializer
-from .serializers.booking_serializers import BookingCreateSerializer, BookingSerializer
-from .serializers.parking_lot_policy_serializers import LotPolicyCreateSerializer, BaseLotPolicySerializer
-from .serializers.parking_lot_serializers import LotCreateSerializer, LotSerializer, LotDetailSerializer
+from .serializers.booking_serializers import BookingCreateSerializer, BookingSerializer, BookingReviewSerializer
+from .serializers.parking_lot_policy_serializers import LotPolicyCreateSerializer, BaseLotPolicySerializer, \
+    LotPolicyPatchSerializer
+from .serializers.parking_lot_serializers import LotCreateSerializer, LotSerializer, LotDetailSerializer, \
+    LotSelectSerializer
 from .serializers.parking_slot_serializers import SlotCreateSerializer
 from .serializers.price_strategy_serializers import PriceStrategySerializer
 from .serializers.public_holiday_serializers import BasePublicHolidaySerializer
+from .services.price_services import PriceEngine
 from .services.sensor_services import SensorService
 from ..users import perms
 
 from .models import Vehicle, FeeRule, ParkingLog, ParkingStatus, ParkingLot, ParkingSlot, ParkingLotPolicy, \
-    PublicHoliday, PriceStrategy, PriceStrategyTemplate
+    PublicHoliday, PriceStrategy, PriceStrategyTemplate, Booking
 
 from .services.vehicle_service import VehicleService
 from .serializers.vehicle_serializers import VehicleSerializer, VehicleCreateSerializer
@@ -75,26 +79,39 @@ class LotViewSet(viewsets.GenericViewSet,
             return LotDetailSerializer
         elif self.action == 'add_policies':
             return LotPolicyCreateSerializer
+        elif self.action == 'get_select':
+            return LotSelectSerializer
+        elif self.action == 'path_policy':
+            return LotPolicyPatchSerializer
         return LotSerializer
 
     def get_permissions(self):
         if self.action in ['create']:
             return [perms.IsManage()]
-        elif self.action in ['list']:
-            return [permissions.AllowAny()]
         return [permissions.IsAuthenticated()]
 
-    @action(detail=True, methods=['POST'], url_path='barrier/open', permission_classes=[permissions.IsAuthenticated])
-    def barrier_open(self, request, pk=None):
+    @action(detail=False, methods=['GET'], url_path='select', permission_classes=[perms.IsManage])
+    def get_select(self, request):
         user = request.user
-        barrier_id = request.data.get('barrier_id')
+        lots = ParkingLot.objects.filter(owner=user)
 
-        success, msg = BarrierService.open_barrier_event(open_flag=True,
-                                                         barrier_id=barrier_id,
-                                                         user_id=user.id,
-                                                         slot_id=pk)
-        success = status.HTTP_200_OK if success else status.HTTP_400_BAD_REQUEST
-        return Response({"message": msg}, status=success)
+        serializer = self.get_serializer(lots, many=True)
+        return Response({
+            "message": "Lấy danh sách parking lots select thành công.",
+            "result": serializer.data
+        }, status=status.HTTP_200_OK)
+
+    @action(detail=False, methods=['GET'], url_path='my-lots', permission_classes=[perms.IsManage])
+    def get_my_lots(self, request):
+        user = request.user
+        lots = ParkingLot.objects.filter(owner=user)
+
+        serializer = self.get_serializer(lots, many=True)
+        return Response({
+            "message": "Lấy danh sách bãi xe thành công.",
+            "result": serializer.data
+        }, status=status.HTTP_200_OK)
+
 
     @action(detail=True, methods=['POST'], url_path='upload-full-map', permission_classes=[perms.IsLotOwner])
     def create_multiple_slot(self, request, pk=None):
@@ -151,6 +168,60 @@ class LotViewSet(viewsets.GenericViewSet,
             "result": serializer.data
         }, status=status.HTTP_200_OK)
 
+    @action(detail=True, methods=['PATCH'], url_path='policies/(?P<policy_id>\d+)',
+            permission_classes=[perms.IsLotOwner])
+    def path_policy(self, request, pk=None, policy_id=None):
+        try:
+            policy = ParkingLotPolicy.objects.get(id=policy_id)
+        except ParkingLotPolicy.DoesNotExist:
+            return Response({"detail": "Không tìm thấy chính sách này."}, status=status.HTTP_404_NOT_FOUND)
+
+        serializer = self.get_serializer(policy, data=request.data, partial=True)
+        serializer.is_valid(raise_exception=True)
+        policySave = serializer.save()
+        return Response({
+            "message": "Cập nhật thành công.",
+            "result": BaseLotPolicySerializer(policySave).data,
+        }, status=status.HTTP_200_OK)
+
+
+class SlotViewSet(viewsets.GenericViewSet):
+    queryset = ParkingSlot.objects.all()
+
+    @action(methods=['GET'], detail=True, url_path='check-fee', permission_classes=[permissions.IsAuthenticated])
+    def check_fee(self, request, pk=None):
+        slot = self.get_object()
+        lot_id = slot.parking_lot_id
+        vehicle_type = slot.vehicle_type
+        fee_rule = FeeRule.objects.filter(parking_lot_id=lot_id, fee_type=vehicle_type).first()
+        if fee_rule:
+            now = timezone.now()
+            price_info = PriceEngine.calculate_final_price(lot_id, fee_rule.amount, now)
+            return Response({
+                "message": "Kiểm tra giá thành công",
+                "result": {
+                    "total_fee": price_info["total_fee"],
+                    "base_price": price_info["base_price"],
+                    "surcharge": price_info["surcharge"],
+                    "note": price_info["note"],
+                }
+            }, status=status.HTTP_200_OK)
+        return Response({
+            "detail": "Không tìm thấy thông tin"
+        }, status=status.HTTP_404_NOT_FOUND)
+
+    @action(detail=True, methods=['POST'], url_path='barrier/open', permission_classes=[permissions.IsAuthenticated])
+    def barrier_open(self, request, pk=None):
+        user = request.user
+        barrier_id = request.data.get('barrier_id')
+
+        success, msg = BarrierService.open_barrier_event(open_flag=True,
+                                                         barrier_id=barrier_id,
+                                                         user_id=user.id,
+                                                         slot_id=pk)
+        success = status.HTTP_200_OK if success else status.HTTP_400_BAD_REQUEST
+        return Response({"message": msg}, status=success)
+
 
 class BookingViewSet(viewsets.GenericViewSet,
                      mixins.CreateModelMixin,
@@ -161,7 +232,21 @@ class BookingViewSet(viewsets.GenericViewSet,
     def get_serializer_class(self):
         if self.action == 'create':
             return BookingCreateSerializer
+        elif self.action == 'review':
+            return BookingReviewSerializer
         return BookingSerializer
+
+    def get_queryset(self):
+        user = self.request.user
+        if user.is_anonymous:
+            return Booking.objects.none()
+        return Booking.objects.filter(user=user)
+
+    @action(methods=['POST'], detail=False, url_path='review', permission_classes=[permissions.IsAuthenticated])
+    def review(self, request, pk=None):
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        return Response(serializer.data, status=status.HTTP_200_OK)
 
 
 class VehicleFaceViewSet(viewsets.GenericViewSet, mixins.CreateModelMixin):
@@ -179,13 +264,36 @@ class FeeRoleViewSet(viewsets.GenericViewSet,
                      mixins.RetrieveModelMixin,
                      mixins.UpdateModelMixin,
                      mixins.ListModelMixin):
-    queryset = FeeRule.objects.all()
     serializer_class = FeeRuleSerializer
 
     def get_permissions(self):
         if self.action in ["list", "retrieve"]:
             return [permissions.AllowAny()]
         return [perms.IsEmployee()]
+
+    def get_queryset(self):
+        parking_lot_id = self.request.query_params.get('parking_lot_id', None)
+
+        if parking_lot_id:
+            return FeeRule.objects.filter(parking_lot_id=parking_lot_id)
+
+        if self.action == 'list':
+            raise ValidationError({"detail": "Tham số bãi xe là bắt buộc để lấy danh sách phí."})
+        return FeeRule.objects.none()
+
+    def get_serializer_context(self):
+        context = super().get_serializer_context()
+        date_str = self.request.query_params.get('date', None)
+
+        if date_str:
+            try:
+                naive_datetime = datetime.strptime(date_str, '%Y-%m-%d')
+                aware_datetime = make_aware(naive_datetime)
+                context['date'] = aware_datetime
+            except ValueError:
+                raise ValidationError({"detail": "Ngày hiện tại phải có định dang yyyy-mm-dd."})
+
+        return context
 
 
 class ParkingLogViewSet(viewsets.ViewSet, generics.ListAPIView):
@@ -223,7 +331,8 @@ class ParkingLogViewSet(viewsets.ViewSet, generics.ListAPIView):
     @action(methods=['get'], detail=True, url_path="fee_detail")
     def get_fee_detail(self, request, pk=None):
         log = self.get_object()
-        final_fee, fee_detail = ParkingLogService.calculate_fee(log.fee_rule, log.parking_lot.id, log.check_in, log.check_out)
+        final_fee, fee_detail = ParkingLogService.calculate_fee(log.fee_rule, log.parking_lot.id, log.check_in,
+                                                                log.check_out)
         return Response({
             "final_fee": final_fee,
             "fee_detail": fee_detail
@@ -422,14 +531,14 @@ class StatsViewSet(viewsets.GenericViewSet):
 
 
 class PublicHolidayViewSet(viewsets.GenericViewSet,
-                           mixins.ListModelMixin,):
+                           mixins.ListModelMixin, ):
     permission_classes = [perms.IsEmployee]
     serializer_class = BasePublicHolidaySerializer
     queryset = PublicHoliday.objects.all()
 
 
 class PriceStrategyViewSet(viewsets.GenericViewSet,
-                           mixins.ListModelMixin,):
+                           mixins.ListModelMixin, ):
     permission_classes = [perms.IsEmployee]
     serializer_class = PriceStrategySerializer
     queryset = PriceStrategyTemplate.objects.all()

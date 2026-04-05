@@ -31,3 +31,8 @@ class LotDetailSerializer(serializers.ModelSerializer):
         model = ParkingLot
         fields = ['id', 'owner_name', 'name', 'address', 'latitude', 'longitude', 'moto_slots', 'car_slots',
                   'bus_slots', 'truck_slots', 'threshold_release', 'map_svgs', 'slots']
+
+class LotSelectSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = ParkingLot
+        fields = ['id', 'name']
