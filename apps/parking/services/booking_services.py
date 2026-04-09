@@ -3,34 +3,32 @@ from django.utils import timezone
 
 from django.db import transaction
 
-from apps.parking.models import Vehicle, ParkingSlot, Booking, FeeRule, BookingStatus
+from apps.parking.models import Vehicle, ParkingSlot, Booking, FeeRule, BookingStatus, ParkingStatus, ParkingLog, \
+    FeeType, ParkingLot
 from .parking_log_service import ParkingLogService
-from ..task import check_booking_expired
+from ..task import check_booking_expired, notify_overtime_booking
+from ...finance.models import PaymentType
 from ...finance.services.payment_service import PaymentService
 from ...users.models import User, UserRole
 from rest_framework import serializers
 
 
 class BookingService:
-    @staticmethod
-    def is_slot_available(slot, start_time, end_time):
-        filters = {
-            "slot": slot,
-            "status__in": ['pending', 'active'],
-            "start_time__lte": end_time,
-            "end_time__gte": start_time,
-        }
-        overlapping_bookings = Booking.objects.filter(**filters)
-        return not overlapping_bookings.exists()
 
     @staticmethod
-    def booking_validation(user, vehicle, slot, start_time, end_time):
+    def booking_validation(user, vehicle, lot, start_time, end_time):
         now = timezone.now()
 
         if start_time >= end_time:
             raise serializers.ValidationError({"end_time": "Thời gian kết thúc phải sau thời gian bắt đầu."})
 
-        if start_time < (now - timedelta(minutes=5)):
+        max_booking_time = now + timedelta(minutes=10)
+        if start_time > max_booking_time:
+            raise serializers.ValidationError({
+                "start_time": f"Chỉ được đặt chỗ trễ nhất đến {max_booking_time.strftime('%H:%M')}"
+            })
+
+        if start_time < (now - timedelta(minutes=2)):
             raise serializers.ValidationError({"start_time": "Thời gian bắt đầu không được ở quá khứ."})
 
         duration_hours = (end_time - start_time).total_seconds() / 3600
@@ -43,74 +41,91 @@ class BookingService:
         if user != vehicle.user:
             raise serializers.ValidationError({"vehicle": "Bạn không phải chủ sở hữu phương tiện này."})
 
-        if vehicle.type != slot.vehicle_type:
-            raise serializers.ValidationError({"slot": "Loại xe không phù hợp với vị trí đỗ này."})
-
-        if not slot.is_vip:
-            raise serializers.ValidationError({"slot": "Vị trí không hỗ trợ đặt trước."})
-
-        if slot.is_occupied:
-            raise serializers.ValidationError({"slot": "Vị trí này hiện đang có xe đỗ thực tế."})
-
-        if not BookingService.is_slot_available(slot, start_time, end_time):
-            raise serializers.ValidationError({"slot": "Vị trí này đã được người khác đặt trong khung giờ này."})
-
         # kiểm tra booking chéo
         if Booking.objects.filter(
+                lot=lot,
                 vehicle=vehicle,
                 status=BookingStatus.ACTIVE,
-                start_time__lte= end_time,
-                end_time__gte= start_time,
+                start_time__lte=end_time,
+                end_time__gte=start_time,
 
         ).exists():
-           raise serializers.ValidationError({"vehicle": f"Xe này hiện đã một vị trí khác trong khung giờ bạn chon."})
+            raise serializers.ValidationError({"vehicle": f"Xe này hiện đã có lịch đặt chỗ trong khung giờ bạn chon."})
+
+        # kiểm tra sức chứa thực tế
+        slot_mapping = {
+            FeeType.CAR: lot.car_slots,
+            FeeType.BUS: lot.bus_slots,
+            FeeType.TRUCK: lot.truck_slots,
+        }
+        total_slots = slot_mapping.get(vehicle.type, 0) # tổng chỗ theo loại của phương tiện
+        # số chỗ hiện tại có trong bãi
+        current_occupancy = ParkingLog.objects.filter(
+            parking_lot=lot,
+            status=ParkingStatus.IN,
+            vehicle__type=vehicle.type).count()
+        # số chỗ các xe sắp đến
+        pending_bookings = Booking.objects.filter(
+            lot=lot,
+            vehicle__type=vehicle.type,
+            status=BookingStatus.ACTIVE,
+        ).count()
+
+        if (current_occupancy + pending_bookings) >= total_slots:
+            raise serializers.ValidationError({"lot": "Bãi xe hiện đã hết suất đỗ khả dụng."})
 
     @staticmethod
-    def create_booking(user: User, vehicle: Vehicle, slot: ParkingSlot, lot: ParkingSlot, start_time, end_time):
+    def create_booking(user: User, vehicle: Vehicle, lot: ParkingLot, start_time, end_time):
         BookingService.booking_validation(user=user,
                                           vehicle=vehicle,
-                                          slot=slot,
+                                          lot=lot,
                                           start_time=start_time,
                                           end_time=end_time)
 
         fee_rule = FeeRule.objects.filter(
-            parking_lot=slot.parking_lot,
-            fee_type=slot.vehicle_type,
+            parking_lot=lot,
+            fee_type=vehicle.type,
             active=True,
         ).first()
 
-        parking_lot_id = slot.parking_lot.id
+        if not fee_rule:
+            raise serializers.ValidationError({"fee": "Bãi xe chưa cấu hình bảng phí cho loại xe này."})
 
-        final_fee, fee_detail =ParkingLogService.calculate_fee(fee_rule, parking_lot_id, start_time, end_time)
-
-        deposit_amount = 15000
-        fee = final_fee
+        final_fee, _ = ParkingLogService.calculate_fee(fee_rule, start_time, end_time)
 
         with transaction.atomic():
             try:
-                ok, msg = PaymentService.create_payment(user, deposit_amount+fee,
-                                                        f'Thanh toán phí đặt cho vị trí {slot.slot_number}')
+                ok, msg = PaymentService.create_payment(
+                    user,
+                    final_fee,
+                    f'Thanh toán đặt chỗ bãi {lot.name} cho xe {vehicle.license_plate}',
+                    PaymentType.BASE)
                 if not ok:
                     raise serializers.ValidationError(msg)
                 booking = Booking.objects.create(
                     user=user,
                     vehicle=vehicle,
-                    slot=slot,
                     lot=lot,
                     start_time=start_time,
                     end_time=end_time,
-                    deposit_amount=deposit_amount,
-                    fee=fee,
+                    expired_time=start_time + timedelta(minutes=10),
+                    fee=final_fee,
                     status=BookingStatus.ACTIVE
                 )
 
                 # eta yêu cầu thời gian dạng UTC
                 task = check_booking_expired.apply_async(
                     args=[booking.id],
+                    eta=booking.expired_time
+                )
+
+                overtime_task = notify_overtime_booking.apply_async(
+                    args=[booking.id],
                     eta=booking.end_time
                 )
 
                 booking.task_id = task.id
+                booking.overtime_task_id = overtime_task.id
                 booking.save()
                 return booking
             except Exception as e:

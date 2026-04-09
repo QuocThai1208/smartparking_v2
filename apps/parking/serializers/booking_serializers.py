@@ -15,7 +15,7 @@ class BookingSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Booking
-        fields = ['id', 'user_full_name', 'vehicle_name', 'slot_number', 'lot_name', 'deposit_amount', 'status', 'start_time', 'end_time']
+        fields = ['id', 'user_full_name', 'vehicle_name', 'slot_number', 'lot_name', 'status', 'start_time', 'end_time']
 
 
     def get_start_time(self, obj):
@@ -31,7 +31,7 @@ class BookingSerializer(serializers.ModelSerializer):
 class BookingCreateSerializer(serializers.ModelSerializer):
     class Meta:
         model = Booking
-        fields = ['vehicle', 'slot', 'lot', 'start_time', 'end_time']
+        fields = ['vehicle', 'lot', 'start_time', 'end_time']
 
     def create(self, validated_data):
         user = self.context.get('request').user
@@ -42,22 +42,20 @@ class BookingCreateSerializer(serializers.ModelSerializer):
 class BookingReviewSerializer(serializers.ModelSerializer):
     class Meta:
         model = Booking
-        fields = ['vehicle', 'slot', 'start_time', 'end_time']
+        fields = ['vehicle', 'lot', 'start_time', 'end_time']
 
     def to_representation(self, instance):
 
-        slot_obj = instance.get('slot')
-        lot_obj = slot_obj.parking_lot
-        vehicle_type = slot_obj.vehicle_type
+        lot_obj = instance.get('lot')
+        vehicle = instance.get('vehicle')
+        vehicle_type = vehicle.type
 
         fee_rule = FeeRule.objects.filter(fee_type=vehicle_type, parking_lot=lot_obj).first()
         data = super().to_representation(instance)
         if fee_rule:
-            final_fee, fee_detail = ParkingLogService.calculate_fee(fee_rule, lot_obj.id, instance.get("start_time"), instance.get("end_time"))
-            fee_booking = 15000
-            data['final_fee'] = final_fee + fee_booking
+            final_fee, fee_detail = ParkingLogService.calculate_fee(fee_rule, instance.get("start_time"), instance.get("end_time"))
+            data['final_fee'] = final_fee
             data['fee_detail'] = fee_detail
-            data['fee_booking'] = fee_booking
             return data
         raise serializers.ValidationError({"detail": "Dữ liệu không hợp lệ."})
 

@@ -1,3 +1,5 @@
+from datetime import timedelta
+
 from asgiref.sync import async_to_sync
 from celery import shared_task
 from channels.layers import get_channel_layer
@@ -5,8 +7,9 @@ from django.db import transaction
 import numpy as np
 from apps.parking.AI_client.detect_face_client import DetectFaceClient
 from apps.parking.AI_client.predict_vehicle_client import PredictVehicleClient
-from .models import ParkingLog, Vehicle, ParkingStatus, Booking, BookingStatus
+from .models import ParkingLog, Vehicle, ParkingStatus, Booking, BookingStatus, ParkingSlot
 from .services.parking_log_service import ParkingLogService, ParkingLogStatsService
+from ..finance.models import PaymentType
 from ..finance.services.payment_service import PaymentService
 from django.conf import settings
 from core.celery import app
@@ -69,6 +72,7 @@ def process_logic_in(parking_lot_id, res, embedding):
         ).first()
 
         if vehicle is None:
+            print("Không tìm thấy phương tiện khớp với biển số")
             return False, "Không tìm thấy phương tiện khớp với biển số", None
 
         if vehicle.color != color or vehicle.brand != brand or vehicle.type != type:
@@ -76,12 +80,52 @@ def process_logic_in(parking_lot_id, res, embedding):
 
         all_faces = vehicle.faces.all()
         if not all_faces.exists():
+            print("Phương tiện này chưa đăng ký khuôn mặt chủ xe")
             return False, "Phương tiện này chưa đăng ký khuôn mặt chủ xe", None
 
         best_face = facial_verification_check_in(all_faces, embedding)
         if best_face is None:
+            print("Xác minh khuôn mặt thất bại")
             return False, "Xác minh khuôn mặt thất bại", None
-        success, msg = ParkingLogService.create_parking_log(parking_lot_id, vehicle, vehicle.type, best_face)
+
+        booking = Booking.objects.filter(
+            vehicle=vehicle,
+            lot_id=parking_lot_id,
+            status=BookingStatus.ACTIVE,
+        ).first()
+
+        earliest_check_in_time = booking.start_time - timedelta(minutes=10)
+        if timezone.now() < earliest_check_in_time:
+            diff = earliest_check_in_time - timezone.now()
+            minutes_to_wait = int(diff.total_seconds() // 60)
+            print(f"Bạn đến quá sớm. Vui lòng quay lại sau {minutes_to_wait} phút nữa.")
+            return False, f"Bạn đến quá sớm. Vui lòng quay lại sau {minutes_to_wait} phút nữa.", None
+
+        with transaction.atomic():
+
+            # Tìm slot trống cho loại xe này (ưu tiên id thấp nhất)
+            assigned_slot = ParkingSlot.objects.filter(
+                parking_lot_id=parking_lot_id,
+                vehicle_type=vehicle.type,
+                is_occupied=False
+            ).order_by('id').first()
+
+            if not assigned_slot:
+                print("Bãi xe hiện tại đã thực sự hết chỗ trống")
+                return False, "Bãi xe hiện tại đã thực sự hết chỗ trống", None
+
+            if booking:
+                booking.slot = assigned_slot
+                booking.task_id = None
+                booking.status = BookingStatus.PARKING
+                booking.save()
+
+            success, msg = ParkingLogService.create_parking_log(
+                parking_lot_id,
+                vehicle,
+                vehicle.type,
+                best_face,
+                booking=booking)
         # gửi dữ liệu xuống client
         if success:
             channel_layer = get_channel_layer()
@@ -135,13 +179,19 @@ def process_logic_out(parking_lot_id, res, embedding):
     print("tìm thấy phương tiện.")
 
     with transaction.atomic():
-        ok, log = ParkingLogService.update_parking(parking_lot_id, vehicle)
+        ok, log, fees_detail = ParkingLogService.update_parking(parking_lot_id, vehicle)
         try:
-            if log.final_amount_to_pay > 0:
-                ok, msg = PaymentService.create_payment(vehicle.user, log.final_amount_to_pay, 'Thanh toán luợt gửi xe')
-            print(f"ok: {ok}, msg: {msg}")
-            if not ok:
-                raise ValueError(msg)
+            for item in fees_detail:
+                if item['fee'] > 0:
+                    # Tạo payment riêng cho từng loại phí
+                    pay_ok, msg = PaymentService.create_payment(
+                        user=vehicle.user,
+                        fee=item['fee'],
+                        description=f"{item['description']} cho xe {vehicle.name}-{vehicle.license_plate}",
+                        type=item['type']
+                    )
+                    if not pay_ok:
+                        raise ValueError(f"Lỗi thanh toán {item['type']}: {msg}")
             log.save(
                 update_fields=['check_out', 'duration_minutes', 'status', 'fee', 'final_amount_to_pay']
             )
@@ -220,4 +270,42 @@ def check_booking_expired(booking_id):
             booking.save()
             print(f"Booking {booking_id} đã hết hạn.")
     except Booking.DoesNotExist:
-        pass
+        print(f"Không tìm thấy Booking ID {booking_id} để hủy.")
+
+
+# Gửi thông báo nếu xe đỗ quá thời gian book
+@shared_task
+def notify_overtime_booking(booking_id):
+    try:
+        booking = Booking.objects.select_related('lot', 'vehicle', 'user').get(id=booking_id)
+
+        # thông báo nếu xe vẫn đang đỗ (PARKING)
+        if booking.status == BookingStatus.PARKING:
+            channel_layer = get_channel_layer()
+
+            # Dữ liệu gửi xuống Dashboard
+            alert_data = {
+                "type": "overtime_notification",
+                "data": {
+                    "booking_id": booking_id,
+                    "license_plate": booking.vehicle.license_plate,
+                    "owner": booking.user.full_name,
+                    "lot_name": booking.lot.name,
+                    "slot_number": booking.slot.slot_number if booking.slot else "N/A",
+                    "end_time": booking.end_time.strftime('%H:%M %d/%m/%Y'),
+                    "message": f"CẢNH BÁO: Xe {booking.vehicle.license_plate} đã đỗ quá hạn!"
+                }
+            }
+
+            # Gửi đến group 'analytics_group'
+            async_to_sync(channel_layer.group_send)(
+                "analytics_group",
+                {
+                    "type": "send_update",
+                    "data": alert_data
+                }
+            )
+            print(f"Đã gửi cảnh báo quá hạn cho Booking {booking_id}")
+
+    except Booking.DoesNotExist:
+        print(f"Không tìm thấy Booking ID {booking_id} để gửi cảnh báo.")

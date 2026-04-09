@@ -1,4 +1,4 @@
-from ..models import Wallet, PaymentStatus
+from ..models import Wallet, PaymentStatus, PaymentType
 from ...users.models import User
 from ...finance.models import Payment, PaymentStatus
 from decimal import Decimal
@@ -16,11 +16,12 @@ class PaymentService:
 
     # HÀM: Tạo mới thanh toán
     @staticmethod
-    def create_payment(user: User, fee: int, description: str) -> tuple[bool, str]:
+    def create_payment(user: User, fee: int, description: str, type: PaymentType) -> tuple[bool, str]:
         fee_decimal = Decimal(str(fee))
         payment = Payment.objects.create(
             user=user,
             amount=fee,
+            type=type
         )
         payment_status, msg = PaymentService.process_payment(user.wallet, fee_decimal, description=description)
         payment.status = payment_status

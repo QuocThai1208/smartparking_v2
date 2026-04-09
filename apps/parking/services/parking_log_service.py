@@ -8,7 +8,8 @@ from typing import Optional, Any
 
 from rest_framework.exceptions import ValidationError
 
-from .price_services import PriceEngine
+from ...finance.models import PaymentType
+from ...finance.services.payment_service import PaymentService
 from ...users.models import UserRole, User
 from ..models import ParkingLog, ParkingStatus, Vehicle, FeeRule, FeeType, VehicleFace, Booking, BookingStatus
 from django.db.models import Sum, Count
@@ -129,9 +130,42 @@ class ParkingLogStatsService:
 
 
 class ParkingLogService:
+    @staticmethod
+    def get_fee_detail(log: ParkingLog):
+        booking = log.booking
+        full_detail = []
+        if booking:
+            booking_fee, fee_booking_detail = ParkingLogService.calculate_fee(log.fee_rule,
+                                                                              booking.start_time,
+                                                                              booking.end_time)
+            for item in fee_booking_detail:
+                item['type'] = "Phí đặt chỗ"
+                full_detail.append(item)
+
+            penalty_fee = 0
+            if booking.end_time < log.check_out:
+                base_penalty, fee_penalty_detail = ParkingLogService.calculate_fee(log.fee_rule, booking.end_time, log.check_out)
+                penalty_fee = base_penalty * 3
+                for item in fee_penalty_detail:
+                    item['type'] = "Phí phạt đỗ quá hạn"
+                    item['unit_price'] *= 3
+                    item['sub_total'] *= 3
+                    full_detail.append(item)
+
+            final_fee = booking_fee + penalty_fee
+            return final_fee, full_detail
+        else:
+            actual_fee, fee_detail = ParkingLogService.calculate_fee(
+                log.fee_rule, log.check_in, log.check_out
+            )
+            for item in fee_detail:
+                item['type'] = "Phí vãng lai"
+
+            return actual_fee, fee_detail
+
     # HÀM: tính phí giữ xe
     @staticmethod
-    def calculate_fee(fee_rule: FeeRule, parking_lot_id, start_time, end_time,):
+    def calculate_fee(fee_rule: FeeRule, start_time, end_time,):
         try:
             if fee_rule.fee_type not in [FeeType.MOTORCYCLE, FeeType.CAR, FeeType.BUS, FeeType.TRUCK]:
                 raise ValueError(f"Unsupport fee_type: {fee_rule.fee_type}")
@@ -151,27 +185,17 @@ class ParkingLogService:
 
                 # Tính số giờ trong phân đoạn của ngày này
                 segment_minutes = (segment_end - current_time).total_seconds() / 60
-                segment_hours = math.ceil(segment_minutes / 60)
+                segment_hours = math.ceil((segment_minutes - 5) / 60) # cho khách hàng 5p để di chuyển từ ô đỗ ra cổng
 
-                # Lấy giá của ngày này
-                price_info = PriceEngine.calculate_final_price(
-                    parking_lot_id,
-                    fee_rule.amount,
-                    current_time
-                )
-
-                unit_price = price_info['total_fee']  # Giá mỗi giờ
+                unit_price = fee_rule.amount  # Giá mỗi giờ
                 day_fee = segment_hours * unit_price
                 final_fee += day_fee
 
-                # 4. Lưu chi tiết cực kỳ ngắn gọn theo ngày
                 fee_detail.append({
                     "date": current_time.strftime("%d/%m/%Y"),
                     "period": f"{current_time.strftime('%H:%M')} - {segment_end.strftime('%H:%M')}",
                     "hours": segment_hours,
                     "unit_price": unit_price,
-                    "surcharge": price_info['surcharge'],
-                    "note": price_info['note'],  # Ví dụ: "Phụ phí cuối tuần"
                     "sub_total": day_fee
                 })
 
@@ -185,7 +209,7 @@ class ParkingLogService:
 
     # HÀM: Cập nhật nhật phí gửi xe
     @staticmethod
-    def update_parking(parking_lot_id, v: Vehicle, ):
+    def update_parking(parking_lot_id, v: Vehicle):
         try:
             log = (
                 ParkingLog.objects
@@ -200,75 +224,54 @@ class ParkingLogService:
         now = timezone.now()
         log.check_out = now
         log.status = ParkingStatus.OUT
-        duration = (log.check_out - log.check_in).total_seconds() / 60
+        duration = (log.check_out - log.check_in).total_seconds() // 60
         log.duration_minutes = duration
 
-        bookings = Booking.objects.filter(
+        booking = Booking.objects.filter(
             vehicle=v,
             lot_id=parking_lot_id,
             status=BookingStatus.PARKING,
-            start_time__lt=now,
-            end_time__gt=log.check_in
-        ).order_by('start_time')
+        ).first()
 
-        total_prepaid = 0
-        penalty_fee = 0
-
-        # Danh sách các mốc thời gian bận (đã có booking)
-        occupied_times = []
-
-        if bookings.exists():
-            for b in bookings:
-                total_prepaid += b.fee
-
-                b_start = max(log.check_in, b.start_time)
-                b_end = min(now, b.end_time)
-                occupied_times.append((b_start, b_end))
-
-                if now > b.end_time and b.vehicle==b.slot.current_vehicle:
-                    penalty_fee += 50000  # Mức phạt cố định cho việc chiếm dụng ô đặt trước
-
-                b.status = BookingStatus.COMPLETED
-                b.save()
-
-        # TÌM KHOẢNG TRỐNG (Thời gian kh có trong booking)
-        # duyệt từ lúc check_in đến check_out để tìm các kẽ hở
-        extra_time_fee = 0
-
-        last_check = log.check_in
-        for b_start, b_end in occupied_times:
-            if last_check < b_start:
-                # Có khoảng trống từ last_check đến b_start
-                fee, detail = ParkingLogService.calculate_fee(
-                    log.fee_rule, parking_lot_id, last_check, b_start
-                )
-                extra_time_fee += fee
-            # Nhảy mốc kiểm tra lên cuối booking này
-            last_check = max(last_check, b_end)
-
-        # Kiểm tra khoảng trống cuối cùng (từ booking cuối đến lúc check-out)
-        if last_check < now - timedelta(minutes=5):
-            fee, detail = ParkingLogService.calculate_fee(
-                log.fee_rule, parking_lot_id, last_check, now
+        fees_detail = [] # danh sách các chi phí cần thanh toán
+        final_amount_to_pay = 0
+        if booking:
+            total_fee = booking.fee
+            if log.check_out > booking.end_time:
+                base_penalty, _ = ParkingLogService.calculate_fee(log.fee_rule, booking.end_time, log.check_out)
+                fee_penalty = base_penalty * 3 # Phạt tiền đỗ gấp 3 lần giá gốc
+                final_amount_to_pay = fee_penalty
+                log.fee = total_fee + fee_penalty
+                fees_detail.append({'fee': fee_penalty, 'type': PaymentType.PENALTY, 'description': 'Thanh toán phí phạt đỗ quá hạn'})
+            else:
+                # Đỗ đúng giờ hoặc ra sớm
+                final_amount_to_pay = 0
+                log.fee = total_fee
+            booking.status = BookingStatus.COMPLETED
+            booking.save()
+        else:
+            actual_fee, _ = ParkingLogService.calculate_fee(
+                log.fee_rule,
+                log.check_in,
+                log.check_out
             )
-            extra_time_fee += fee
-
-        # Tổng hợp tài chính
-        log.fee = total_prepaid + extra_time_fee + penalty_fee
-        log.final_amount_to_pay = extra_time_fee + penalty_fee
-
+            log.fee = actual_fee
+            final_amount_to_pay = actual_fee
+            fees_detail.append({'fee': actual_fee, 'type': PaymentType.BASE, 'description': 'Thanh toán phí đỗ'})
+        log.final_amount_to_pay = final_amount_to_pay
         log.save()
-        return True, log
+        return True, log, fees_detail
 
     # HÀM: Tạo mới nhật kí gửi xe
     @staticmethod
-    def create_parking_log(parking_lot_id, v: Vehicle, fee_type: FeeType, face=VehicleFace) -> tuple[bool, str]:
+    def create_parking_log(parking_lot_id, v: Vehicle, fee_type: FeeType, face: VehicleFace, booking: Booking) -> tuple[bool, str]:
         try:
             exist_p = ParkingLog.objects.filter(user=v.user, vehicle=v, status=ParkingStatus.IN).first()
             if exist_p:
                 return False, 'Phương tiện này đang có trong bãi'
             p = ParkingLog.objects.create(
                 parking_lot_id=parking_lot_id,
+                booking=booking,
                 user=v.user,
                 vehicle_face=face,
                 vehicle=v,
@@ -277,7 +280,7 @@ class ParkingLogService:
                 check_in=datetime.now()
             )
             if p:
-                return True, "Xin mời vào."
+                return True, f"Xin mời vào vị trí {booking.slot.slot_number}" if booking else "Xin mời vào."
             return False, "Không hợp lệ."
         except Exception as e:
             print("Lỗi: ", e)

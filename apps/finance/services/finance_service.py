@@ -14,7 +14,7 @@ from django.utils import timezone
 class FinanceService:
     @staticmethod
     def get_revenue_chart_data():
-        today = timezone.localdate()
+        today = timezone.now()
 
         # XỬ LÝ DAILY (7 ngày gần nhất)
         daily_results = []

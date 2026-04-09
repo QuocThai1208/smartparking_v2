@@ -14,8 +14,6 @@ router.register('stats', views.StatsViewSet, basename='stats')
 router.register('parking-lots', views.LotViewSet, basename='parking-lot')
 router.register('parking-slots', views.SlotViewSet, basename='parking-slot')
 router.register('bookings', views.BookingViewSet, basename='booking')
-router.register('public-holidays', views.PublicHolidayViewSet, basename='public-holiday')
-router.register('price-strategies', views.PriceStrategyViewSet, basename='price-strategy')
 router.register('tests', views.TestViewSet, basename='test')
 
 urlpatterns = [

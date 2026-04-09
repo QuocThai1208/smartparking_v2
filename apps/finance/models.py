@@ -9,6 +9,12 @@ class PaymentStatus(models.TextChoices):
     ERROR = "ERROR", "Lỗi kết nối"
 
 
+class PaymentType(models.TextChoices):
+    BASE = "BASE", "Phí gốc"
+    PENALTY = "PENALTY", "Phí phạt đỗ quá hạn"
+    TOWING = "TOWING", "Phí cẩu xe"
+
+
 class TransactionType(models.TextChoices):
     DEPOSIT = "DEPOSIT", "Nạp tiền"
     WITHDRAW = "WITHDRAW", "Rút tiền",
@@ -30,6 +36,7 @@ class Payment(BaseModel):
     user = models.ForeignKey(User, on_delete=models.CASCADE, related_name="payments")
     amount = models.PositiveIntegerField(help_text="Số tiền giao dịch (VNĐ)")
     status = models.CharField(max_length=10, choices=PaymentStatus.choices, default=PaymentStatus.PENDING)
+    type = models.CharField(max_length=10, choices=PaymentType.choices, default=PaymentType.BASE)
 
     def __str__(self):
         return f"{self.id} - {self.amount}đ ({self.status})"

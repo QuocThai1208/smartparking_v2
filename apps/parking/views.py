@@ -14,19 +14,13 @@ from rest_framework.response import Response
 
 from .serializers.MapSvgSerializers import MapSvgCreateSerializer
 from .serializers.booking_serializers import BookingCreateSerializer, BookingSerializer, BookingReviewSerializer
-from .serializers.parking_lot_policy_serializers import LotPolicyCreateSerializer, BaseLotPolicySerializer, \
-    LotPolicyPatchSerializer
 from .serializers.parking_lot_serializers import LotCreateSerializer, LotSerializer, LotDetailSerializer, \
     LotSelectSerializer
 from .serializers.parking_slot_serializers import SlotCreateSerializer
-from .serializers.price_strategy_serializers import PriceStrategySerializer
-from .serializers.public_holiday_serializers import BasePublicHolidaySerializer
-from .services.price_services import PriceEngine
 from .services.sensor_services import SensorService
 from ..users import perms
 
-from .models import Vehicle, FeeRule, ParkingLog, ParkingStatus, ParkingLot, ParkingSlot, ParkingLotPolicy, \
-    PublicHoliday, PriceStrategy, PriceStrategyTemplate, Booking
+from .models import Vehicle, FeeRule, ParkingLog, ParkingStatus, ParkingLot, ParkingSlot, Booking
 
 from .services.vehicle_service import VehicleService
 from .serializers.vehicle_serializers import VehicleSerializer, VehicleCreateSerializer
@@ -77,12 +71,8 @@ class LotViewSet(viewsets.GenericViewSet,
             return LotCreateSerializer
         elif self.action == 'retrieve':
             return LotDetailSerializer
-        elif self.action == 'add_policies':
-            return LotPolicyCreateSerializer
         elif self.action == 'get_select':
             return LotSelectSerializer
-        elif self.action == 'path_policy':
-            return LotPolicyPatchSerializer
         return LotSerializer
 
     def get_permissions(self):
@@ -111,7 +101,6 @@ class LotViewSet(viewsets.GenericViewSet,
             "message": "Lấy danh sách bãi xe thành công.",
             "result": serializer.data
         }, status=status.HTTP_200_OK)
-
 
     @action(detail=True, methods=['POST'], url_path='upload-full-map', permission_classes=[perms.IsLotOwner])
     def create_multiple_slot(self, request, pk=None):
@@ -151,39 +140,6 @@ class LotViewSet(viewsets.GenericViewSet,
         except Exception as e:
             return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
 
-    @action(detail=True, methods=['POST', 'GET'], url_path='policies', permission_classes=[perms.IsLotOwner])
-    def add_policies(self, request, pk=None):
-        if request.method == 'POST':
-            serializer = self.get_serializer(data=request.data)
-            serializer.is_valid(raise_exception=True)
-            data = serializer.save()
-            return Response({
-                "message": "Thêm chính sách thành công",
-                "result": BaseLotPolicySerializer(data).data
-            }, status=status.HTTP_201_CREATED)
-        policies = ParkingLotPolicy.objects.filter(parking_lot_id=pk).select_related('strategy', 'holiday')
-        serializer = BaseLotPolicySerializer(policies, many=True)
-        return Response({
-            "message": "Lấy danh sách chính sách thành công",
-            "result": serializer.data
-        }, status=status.HTTP_200_OK)
-
-    @action(detail=True, methods=['PATCH'], url_path='policies/(?P<policy_id>\d+)',
-            permission_classes=[perms.IsLotOwner])
-    def path_policy(self, request, pk=None, policy_id=None):
-        try:
-            policy = ParkingLotPolicy.objects.get(id=policy_id)
-        except ParkingLotPolicy.DoesNotExist:
-            return Response({"detail": "Không tìm thấy chính sách này."}, status=status.HTTP_404_NOT_FOUND)
-
-        serializer = self.get_serializer(policy, data=request.data, partial=True)
-        serializer.is_valid(raise_exception=True)
-        policySave = serializer.save()
-        return Response({
-            "message": "Cập nhật thành công.",
-            "result": BaseLotPolicySerializer(policySave).data,
-        }, status=status.HTTP_200_OK)
-
 
 class SlotViewSet(viewsets.GenericViewSet):
     queryset = ParkingSlot.objects.all()
@@ -195,16 +151,9 @@ class SlotViewSet(viewsets.GenericViewSet):
         vehicle_type = slot.vehicle_type
         fee_rule = FeeRule.objects.filter(parking_lot_id=lot_id, fee_type=vehicle_type).first()
         if fee_rule:
-            now = timezone.now()
-            price_info = PriceEngine.calculate_final_price(lot_id, fee_rule.amount, now)
             return Response({
                 "message": "Kiểm tra giá thành công",
-                "result": {
-                    "total_fee": price_info["total_fee"],
-                    "base_price": price_info["base_price"],
-                    "surcharge": price_info["surcharge"],
-                    "note": price_info["note"],
-                }
+                "result": fee_rule
             }, status=status.HTTP_200_OK)
         return Response({
             "detail": "Không tìm thấy thông tin"
@@ -331,8 +280,7 @@ class ParkingLogViewSet(viewsets.ViewSet, generics.ListAPIView):
     @action(methods=['get'], detail=True, url_path="fee_detail")
     def get_fee_detail(self, request, pk=None):
         log = self.get_object()
-        final_fee, fee_detail = ParkingLogService.calculate_fee(log.fee_rule, log.parking_lot.id, log.check_in,
-                                                                log.check_out)
+        final_fee, fee_detail = ParkingLogService.get_fee_detail(log)
         return Response({
             "final_fee": final_fee,
             "fee_detail": fee_detail
@@ -462,7 +410,7 @@ class StatsViewSet(viewsets.GenericViewSet):
     @action(methods=['get'], detail=False, url_path='parking/peak-hours',
             permission_classes=[perms.IsEmployee])
     def get_peak_hour_stats(self, request):
-        today = timezone.localdate()
+        today = timezone.now()
         year = today.year
         month = today.month
         day = today.day
@@ -528,20 +476,6 @@ class StatsViewSet(viewsets.GenericViewSet):
             "message": "Lấy tổng số khách hàng thành công",
             "result": response
         }, status=status.HTTP_200_OK)
-
-
-class PublicHolidayViewSet(viewsets.GenericViewSet,
-                           mixins.ListModelMixin, ):
-    permission_classes = [perms.IsEmployee]
-    serializer_class = BasePublicHolidaySerializer
-    queryset = PublicHoliday.objects.all()
-
-
-class PriceStrategyViewSet(viewsets.GenericViewSet,
-                           mixins.ListModelMixin, ):
-    permission_classes = [perms.IsEmployee]
-    serializer_class = PriceStrategySerializer
-    queryset = PriceStrategyTemplate.objects.all()
 
 
 class TestViewSet(viewsets.GenericViewSet):
