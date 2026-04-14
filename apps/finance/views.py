@@ -1,21 +1,26 @@
+import hashlib
+import hmac
 from typing import Optional
-
+from decimal import Decimal
+from django.conf import settings
+from django.db import transaction
+from django.views.decorators.csrf import csrf_exempt
 from rest_framework import viewsets, permissions, status, mixins
 from rest_framework.decorators import action
-from rest_framework.exceptions import ValidationError
 from rest_framework.pagination import PageNumberPagination
 from rest_framework.response import Response
 
 from .models import Payment, WalletTransaction, Wallet
 from .serializers.payment_serializers import PaymentSerializer
-from .serializers.wallet_serializers import WalletSerializer
+from .serializers.wallet_serializers import WalletSerializer, DepositSerializer
 from .serializers.wallet_transaction_serializers import WalletTransactionSerializer
 from .services.finance_service import FinanceService
+from .services.momo_services import MomoService
 
 from ..users.models import UserRole
 from ..users import perms
 
-from ..parking.services.parking_log_service import ParkingLogService, ParkingLogStatsService
+from ..parking.services.parking_log_service import ParkingLogService
 
 
 class PaymentViewSet(viewsets.GenericViewSet, mixins.ListModelMixin):
@@ -27,9 +32,83 @@ class PaymentViewSet(viewsets.GenericViewSet, mixins.ListModelMixin):
         return Payment.objects.filter(user=user)
 
 
+class MomoViewSet(viewsets.GenericViewSet):
+    permission_classes = [permissions.IsAuthenticated]
+
+    @action(methods=['POST'], url_path='deposit', detail=False, )
+    def momo_deposit(self, request):
+        user = request.user
+        serializer = DepositSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        momo_service = MomoService()
+        res_data, order_id = momo_service.create_payment(user.id, **serializer.validated_data)
+        if res_data.get('resultCode') == 0:
+            return Response({
+                'deeplink': res_data.get('deeplink'),
+                'payUrl': res_data.get('payUrl'),
+            }, status=status.HTTP_200_OK)
+        return Response({'error': res_data.get('message')}, status=status.HTTP_400_BAD_REQUEST)
+
+    @csrf_exempt
+    @action(methods=['POST'], detail=False, url_path='webhook', authentication_classes=[],
+            permission_classes=[permissions.AllowAny])
+    def momo_webhook(self, request):
+        data = request.data
+        secret_key = settings.MOMO_SECRET_KEY
+        access_key = settings.MOMO_ACCESS_KEY
+
+        # Xác thực Signature từ MoMo (Để đảm bảo an toàn)
+        raw_sig = (
+            f"accessKey={access_key}"
+            f"&amount={data['amount']}"
+            f"&extraData={data['extraData']}"
+            f"&message={data['message']}"
+            f"&orderId={data['orderId']}"
+            f"&orderInfo={data['orderInfo']}"
+            f"&orderType={data['orderType']}"
+            f"&partnerCode={data['partnerCode']}"
+            f"&payType={data['payType']}"
+            f"&requestId={data['requestId']}"
+            f"&responseTime={data['responseTime']}"
+            f"&resultCode={data['resultCode']}"
+            f"&transId={data['transId']}"
+        )
+        computed_sig = hmac.new(
+            secret_key.encode('utf-8'),
+            raw_sig.encode('utf-8'),
+            hashlib.sha256
+        ).hexdigest()
+
+        if computed_sig != data.get('signature'):
+            print("lỗi: giao dịch kh hợp lệ")
+            return Response({"message": "Giao dịch không hợp lệ"}, status=status.HTTP_400_BAD_REQUEST)
+
+        # Kiểm tra trạng thái thanh toán (resultCode = 0 là thành công)
+        if int(data.get('resultCode')) == 0:
+            user_id = data.get('extraData')
+            print("user_id", user_id)
+            amount = Decimal(data.get('amount'))
+            description = data.get('orderInfo')
+            try:
+                with transaction.atomic():
+                    wallet = Wallet.objects.filter(user_id=user_id).first()
+                    if not wallet:
+                        print("lỗi: Không tìm thấy ví người dùng")
+                        return Response({"detail": "Không tìm thấy ví người dùng"}, status=status.HTTP_400_BAD_REQUEST)
+
+                    wallet.deposit(amount, description=description)
+            except Exception as e:
+                print(f"lỗi: {e}")
+                return Response({"status": e}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+        # Trả về 204 cho MoMo để báo đã nhận IPN thành công
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
 class WalletTransactionViewSet(viewsets.GenericViewSet, mixins.ListModelMixin):
     serializer_class = WalletTransactionSerializer
     permission_classes = [permissions.IsAuthenticated]
+    pagination_class = PageNumberPagination
 
     def get_queryset(self):
         user = self.request.user
@@ -90,6 +169,7 @@ class WalletViewSet(viewsets.GenericViewSet):
 
 class StatsViewSet(viewsets.GenericViewSet):
     pagination_class = PageNumberPagination
+
     @action(methods=['get'], detail=False, url_path='revenue', permission_classes=[permissions.IsAuthenticated])
     def get_stats_revenue(self, request):
         user = self.request.user
@@ -110,7 +190,8 @@ class StatsViewSet(viewsets.GenericViewSet):
 
     @action(methods=['get'], detail=False, url_path='revenue/chart', permission_classes=[perms.IsEmployee])
     def get_revenue_chart(self, request):
-        results = FinanceService.get_revenue_chart_data()
+        lot_id = self.request.query_params.get("parking_lot_id", None)
+        results = FinanceService.get_revenue_chart_data(lot_id)
 
         return Response({
             "message": "Lấy dữ liệu biểu đồ theo thành công",

@@ -1,4 +1,3 @@
-from ..models import Vehicle, VehicleFace
 import requests
 from django.conf import settings
 import os
@@ -15,9 +14,10 @@ class DetectFaceClient:
                 response.raise_for_status()
                 ai_data = response.json()
                 embedding = ai_data['data']['embedding']
+                processed_face_base64 = ai_data['data']['processed_face']
 
-                if embedding is None:
+                if embedding is None or processed_face_base64 is None:
                     raise ValueError("Không nhận diện dược khuôn mặt")
-                return embedding
+                return embedding, processed_face_base64
         except Exception as e:
             raise ValueError("detail", e)

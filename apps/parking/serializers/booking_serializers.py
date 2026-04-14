@@ -8,6 +8,7 @@ from apps.parking.services.parking_log_service import ParkingLogService
 class BookingSerializer(serializers.ModelSerializer):
     start_time = serializers.SerializerMethodField()
     end_time = serializers.SerializerMethodField()
+    expired_time = serializers.SerializerMethodField()
     lot_name = serializers.ReadOnlyField(source='lot.name')
     user_full_name = serializers.ReadOnlyField(source='user.full_name')
     vehicle_name = serializers.ReadOnlyField(source='vehicle.name')
@@ -15,7 +16,7 @@ class BookingSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Booking
-        fields = ['id', 'user_full_name', 'vehicle_name', 'slot_number', 'lot_name', 'status', 'start_time', 'end_time']
+        fields = ['id', 'user_full_name', 'vehicle_name', 'fee', 'slot_number', 'lot_name', 'status', 'start_time', 'end_time', 'expired_time']
 
 
     def get_start_time(self, obj):
@@ -26,6 +27,11 @@ class BookingSerializer(serializers.ModelSerializer):
     def get_end_time(self, obj):
         if obj.end_time:
             return obj.end_time.strftime("%H:%M:%S %d/%m/%Y")
+        return None
+
+    def get_expired_time(self, obj):
+        if obj.expired_time:
+            return obj.expired_time.strftime("%H:%M:%S %d/%m/%Y")
         return None
 
 class BookingCreateSerializer(serializers.ModelSerializer):

@@ -1,4 +1,6 @@
 from ..models import Wallet, PaymentStatus, PaymentType
+from ...parking.models import NotificationTypes
+from ...parking.services.notification_services import create_and_send_notification
 from ...users.models import User
 from ...finance.models import Payment, PaymentStatus
 from decimal import Decimal
@@ -28,4 +30,10 @@ class PaymentService:
         payment.save(update_fields=['status'])
         if payment_status in [PaymentStatus.ERROR, PaymentStatus.FAIL]:
             return False, msg
+
+        create_and_send_notification(
+            user.id,
+            "Thanh toán phí giữ xe.",
+            f"Thanh toán phí giữ xe -{fee} đ",
+            NotificationTypes.FINANCE)
         return True, "Xin mời ra."

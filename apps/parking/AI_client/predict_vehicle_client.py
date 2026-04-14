@@ -17,7 +17,9 @@ class PredictVehicleClient:
                                     'color': Red,
                                     'brand': toyota,
                                     'type': Car,
+                                    'vehicle_crop': File
                                   }
+                    'processed_plate': File
                 }
         """
         url = settings.PLATE_SERVICE_URL
@@ -36,7 +38,7 @@ class PredictVehicleClient:
                 ai_data = response.json()
 
                 if ai_data['success']:
-                    return ai_data['data']
+                    return ai_data['data'], ai_data['file']
             raise ValueError("AI Service return success: False")
         except Exception as e:
             raise ValueError("detail", e)

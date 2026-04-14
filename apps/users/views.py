@@ -39,8 +39,26 @@ class UserProfileView(generics.RetrieveUpdateAPIView):
 
 
 class UserViewSet(viewsets.GenericViewSet):
-    queryset = User.objects.filter(is_active=True)
-    serializer_class = user_serializers.UserSerializer
+    queryset = User.objects.all()
+
+    def get_serializer_class(self):
+        if self.action == 'update_active':
+            return UpdateActiveSerializer
+        return UserSerializer
+
+    @action(detail=True, methods=['patch'], url_path='active')
+    def update_active(self, request, pk=None):
+        user = self.get_object()
+        serializer = self.get_serializer(user, data=request.data, partial=True)
+        if serializer.is_valid():
+            user_save = serializer.save()
+            return Response({
+                "message": "Cập nhật active thành công.",
+                "result": BaseUserSerializer(user_save).data
+            }, status=status.HTTP_200_OK)
+        return Response({
+            "detail": "Không thể thực hiện hành động.",
+        }, status=status.HTTP_400_BAD_REQUEST)
 
     @action(methods=['get'], detail=False, url_path='me/total-payment',
             permission_classes=[permissions.IsAuthenticated])

@@ -1,4 +1,7 @@
 from django.db import models
+
+from ..parking.models import NotificationTypes
+from ..parking.services.notification_services import create_and_send_notification
 from ..users.models import User
 
 
@@ -64,6 +67,11 @@ class Wallet(BaseModel):
             transaction_type=TransactionType.DEPOSIT,
             description=description
         )
+        create_and_send_notification(
+            self.user.id,
+            "Nạp tiền thành công.",
+            f"Nạp tiền từ ví momo thành công +{amount} đ",
+            NotificationTypes.FINANCE)
 
     def withdraw(self, amount, description=''):
         if not self.active:
@@ -82,6 +90,11 @@ class Wallet(BaseModel):
             transaction_type=TransactionType.WITHDRAW,
             description=description
         )
+        create_and_send_notification(
+            self.user.id,
+            "Rút tiền thành công.",
+            f"Rút tiền thành công -{amount} đ",
+            NotificationTypes.FINANCE)
 
 
 class WalletTransaction(BaseModel):

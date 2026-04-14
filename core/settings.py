@@ -219,3 +219,8 @@ SIMPLE_JWT = {
     'SIGNING_KEY': SECRET_KEY,  # Dùng Secret Key của Django làm chữ ký
     'AUTH_HEADER_TYPES': ('Bearer',),  # Header khi gọi API: Authorization: Bearer <token>
 }
+
+
+MOMO_PARTNER_CODE =  config('MOMO_PARTNER_CODE')
+MOMO_ACCESS_KEY =  config('MOMO_ACCESS_KEY')
+MOMO_SECRET_KEY = config('MOMO_SECRET_KEY')

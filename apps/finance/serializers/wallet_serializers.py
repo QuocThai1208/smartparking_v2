@@ -11,3 +11,8 @@ class WalletSerializer(serializers.ModelSerializer):
 
     def get_user(self, obj):
         return obj.user.full_name
+
+
+class DepositSerializer(serializers.Serializer):
+    amount = serializers.IntegerField()
+    description = serializers.CharField(default='Nạp tiền vào ví', allow_blank=True, allow_null=True)

@@ -7,11 +7,13 @@ from django.utils import timezone
 from typing import Optional, Any
 
 from rest_framework.exceptions import ValidationError
+from rest_framework.generics import get_object_or_404
 
 from ...finance.models import PaymentType
 from ...finance.services.payment_service import PaymentService
 from ...users.models import UserRole, User
-from ..models import ParkingLog, ParkingStatus, Vehicle, FeeRule, FeeType, VehicleFace, Booking, BookingStatus
+from ..models import ParkingLog, ParkingStatus, Vehicle, FeeRule, FeeType, VehicleFace, Booking, BookingStatus, \
+    ParkingLot
 from django.db.models import Sum, Count
 from datetime import timedelta
 
@@ -44,9 +46,26 @@ class ParkingLogStatsService:
         return results
 
     @staticmethod
-    def get_parking_current_stats():
-        total_slots = 100
-        occupied = ParkingLog.objects.filter(status=ParkingStatus.IN).count()
+    def get_parking_current_stats(lot_id: int, vehicle_type: FeeType):
+        mapping = {
+            "MOTORCYCLE": "moto_slots",
+            "CAR": "car_slots",
+            "TRUCK": "truck_slots",
+            "BUS": "bus_slots",
+        }
+
+        field_name = mapping.get(vehicle_type)
+
+        if not lot_id:
+            raise ValidationError({"lot_id": f"Bãi xe không hợp lệ."})
+
+        if not field_name:
+            raise ValidationError({"vehicle_type": f"Loại xe {vehicle_type} không hợp lệ"})
+
+        lot = get_object_or_404(ParkingLot, id=lot_id)
+        total_slots=getattr(lot, field_name)
+
+        occupied = ParkingLog.objects.filter(status=ParkingStatus.IN, vehicle__type=vehicle_type).count()
         return {
             "total": total_slots,
             "occupied": occupied,
@@ -215,11 +234,13 @@ class ParkingLogService:
                 ParkingLog.objects
                 .select_for_update()  # khóa bảng ghi cho đến khi hoàn tất
                 .get(user=v.user,
+                     parking_lot_id=parking_lot_id,
                      vehicle=v,
                      status=ParkingStatus.IN)
             )
         except  ParkingLog.DoesNotExist:
             return False, "Không tìm thấy xe lượt vào bãi"
+        print("tìm thấy log.")
 
         now = timezone.now()
         log.check_out = now
@@ -236,6 +257,7 @@ class ParkingLogService:
         fees_detail = [] # danh sách các chi phí cần thanh toán
         final_amount_to_pay = 0
         if booking:
+            print("tìm thấy booking.")
             total_fee = booking.fee
             if log.check_out > booking.end_time:
                 base_penalty, _ = ParkingLogService.calculate_fee(log.fee_rule, booking.end_time, log.check_out)
@@ -249,17 +271,21 @@ class ParkingLogService:
                 log.fee = total_fee
             booking.status = BookingStatus.COMPLETED
             booking.save()
+            print("Cập nhật booking thành công.")
         else:
+            print("Không tìm thấy booking.")
             actual_fee, _ = ParkingLogService.calculate_fee(
                 log.fee_rule,
                 log.check_in,
                 log.check_out
             )
+            print(f"Tính phí thành công {actual_fee}.")
             log.fee = actual_fee
             final_amount_to_pay = actual_fee
             fees_detail.append({'fee': actual_fee, 'type': PaymentType.BASE, 'description': 'Thanh toán phí đỗ'})
         log.final_amount_to_pay = final_amount_to_pay
         log.save()
+        print("Lưu log thành công.")
         return True, log, fees_detail
 
     # HÀM: Tạo mới nhật kí gửi xe
@@ -291,7 +317,7 @@ class ParkingLogService:
         return logs
 
     @staticmethod
-    def get_my_logs(user: User, day: int, month: int, year: int):
+    def get_my_logs(user: User, day: int, month: int, year: int, parking_lot_id: int):
         df, dt = ParkingLogService.create_df_dt(day, month, year)
 
         filters: dict[str, Any] = {
@@ -303,6 +329,8 @@ class ParkingLogService:
             filters['created_date__date__gte'] = df
         if dt:
             filters['created_date__date__lte'] = dt
+        if parking_lot_id:
+            filters['parking_lot_id'] = parking_lot_id
 
         return (ParkingLog.objects.filter(**filters)
                 .select_related('vehicle')

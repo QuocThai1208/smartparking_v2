@@ -8,6 +8,7 @@ router.register('payments', views.PaymentViewSet, basename='payment')
 router.register('stats', views.StatsViewSet, basename='stats')
 router.register('transactions', views.WalletTransactionViewSet, basename='walletTransaction')
 router.register('wallet', views.WalletViewSet, basename='wallet')
+router.register('payment-momo', views.MomoViewSet, basename='payment-momo')
 
 urlpatterns = [
     path('', include(router.urls)),

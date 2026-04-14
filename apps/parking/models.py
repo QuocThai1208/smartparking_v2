@@ -27,6 +27,12 @@ class BookingStatus(models.TextChoices):
     EXPIRED = "EXPIRED", "Hết hạn sử dụng"
 
 
+class NotificationTypes(models.TextChoices):
+    FINANCE = "FINANCE", "Tài chính",
+    SYSTEM = "SYSTEM", "Hệ thống",
+    PARKING = "PARKING", "Đỗ xe"
+
+
 class BaseModel(models.Model):
     active = models.BooleanField(default=True)
     created_date = models.DateTimeField(auto_now_add=True)
@@ -47,9 +53,6 @@ class ParkingLot(BaseModel):
     car_slots = models.PositiveIntegerField(default=0)
     bus_slots = models.PositiveIntegerField(default=0)
     truck_slots = models.PositiveIntegerField(default=0)
-
-    # Ngưỡng hạ rào tự động
-    threshold_release = models.FloatField(default=0.8)
 
     def __str__(self):
         return self.name
@@ -173,3 +176,20 @@ class ParkingLog(BaseModel):
 
     def __str__(self):
         return f"Log {self.id} - {self.vehicle.license_plate}"
+
+
+class Notification(BaseModel):
+    user = models.ForeignKey(User,on_delete=models.CASCADE, related_name='notifications')
+    title = models.CharField(max_length=255)
+    content = models.TextField()
+
+    # Loại thông báo
+    notification_type = models.CharField(max_length=20,choices=NotificationTypes.choices,default='SYSTEM')
+
+    is_read = models.BooleanField(default=False)
+
+    class Meta:
+        ordering = ['-created_date']
+
+    def __str__(self):
+        return f"{self.user.username} - {self.title}"

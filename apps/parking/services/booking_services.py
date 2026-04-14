@@ -113,15 +113,14 @@ class BookingService:
                     status=BookingStatus.ACTIVE
                 )
 
-                # eta yêu cầu thời gian dạng UTC
                 task = check_booking_expired.apply_async(
                     args=[booking.id],
-                    eta=booking.expired_time
+                    eta=(booking.expired_time - timedelta(hours=7))
                 )
 
                 overtime_task = notify_overtime_booking.apply_async(
                     args=[booking.id],
-                    eta=booking.end_time
+                    eta=(booking.end_time - timedelta(hours=7))
                 )
 
                 booking.task_id = task.id

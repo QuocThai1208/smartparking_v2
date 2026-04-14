@@ -14,13 +14,13 @@ from rest_framework.response import Response
 
 from .serializers.MapSvgSerializers import MapSvgCreateSerializer
 from .serializers.booking_serializers import BookingCreateSerializer, BookingSerializer, BookingReviewSerializer
+from .serializers.notification_serializers import NotificationBaseSerializer
 from .serializers.parking_lot_serializers import LotCreateSerializer, LotSerializer, LotDetailSerializer, \
-    LotSelectSerializer
+    LotSelectSerializer, LotUpdateSerializer
 from .serializers.parking_slot_serializers import SlotCreateSerializer
-from .services.sensor_services import SensorService
 from ..users import perms
 
-from .models import Vehicle, FeeRule, ParkingLog, ParkingStatus, ParkingLot, ParkingSlot, Booking
+from .models import Vehicle, FeeRule, ParkingLog, ParkingStatus, ParkingLot, ParkingSlot, Booking, Notification
 
 from .services.vehicle_service import VehicleService
 from .serializers.vehicle_serializers import VehicleSerializer, VehicleCreateSerializer
@@ -63,7 +63,8 @@ class VehicleViewSet(viewsets.ModelViewSet):
 class LotViewSet(viewsets.GenericViewSet,
                  mixins.CreateModelMixin,
                  mixins.ListModelMixin,
-                 mixins.RetrieveModelMixin):
+                 mixins.RetrieveModelMixin,
+                 mixins.UpdateModelMixin):
     queryset = ParkingLot.objects.all()
 
     def get_serializer_class(self):
@@ -73,6 +74,8 @@ class LotViewSet(viewsets.GenericViewSet,
             return LotDetailSerializer
         elif self.action == 'get_select':
             return LotSelectSerializer
+        elif self.action in ['update', 'partial_update']:
+            return LotUpdateSerializer
         return LotSerializer
 
     def get_permissions(self):
@@ -218,7 +221,7 @@ class FeeRoleViewSet(viewsets.GenericViewSet,
     def get_permissions(self):
         if self.action in ["list", "retrieve"]:
             return [permissions.AllowAny()]
-        return [perms.IsEmployee()]
+        return [perms.IsManage()]
 
     def get_queryset(self):
         parking_lot_id = self.request.query_params.get('parking_lot_id', None)
@@ -260,10 +263,12 @@ class ParkingLogViewSet(viewsets.ViewSet, generics.ListAPIView):
             day = _to_int_or_none(self.request.query_params.get("day"))
             month = _to_int_or_none(self.request.query_params.get("month"))
             year = _to_int_or_none(self.request.query_params.get("year"))
+            lot_id = _to_int_or_none(self.request.query_params.get('parking_lot_id'))
+
         except ValueError:
             raise ValidationError("ngày, tháng, năm phải là số dương")
 
-        parking_logs = ParkingLogService.get_my_logs(user, day, month, year)
+        parking_logs = ParkingLogService.get_my_logs(user, day, month, year, lot_id)
         return parking_logs
 
     @action(methods=['get'], detail=False, url_path="occupancy", permission_classes=[perms.IsStaffOrAdmin])
@@ -462,7 +467,9 @@ class StatsViewSet(viewsets.GenericViewSet):
     @action(methods=['get'], detail=False, url_path='parking/current',
             permission_classes=[permissions.IsAuthenticated])
     def get_parking_current_stats(self, request):
-        response = ParkingLogStatsService.get_parking_current_stats()
+        lot_id = request.query_params.get("parking_lot_id", None)
+        vehicle_type = request.query_params.get("vehicle_type", None)
+        response = ParkingLogStatsService.get_parking_current_stats(lot_id, vehicle_type)
         return Response({
             "message": "Lấy thông tin hiện tại của bãi xe thành công",
             "result": response
@@ -478,20 +485,31 @@ class StatsViewSet(viewsets.GenericViewSet):
         }, status=status.HTTP_200_OK)
 
 
-class TestViewSet(viewsets.GenericViewSet):
-    @action(methods=['post'], detail=False, url_path='sensor-signa', permission_classes=[permissions.AllowAny])
-    def sensor_signal(self, request):
-        is_occupied = request.data.get('is_occupied', False)
-        vehicle_id = request.data.get('vehicle_id', '')
-        slot_id = request.data.get('slot_id', '')
+class NotificationViewSet(viewsets.GenericViewSet, mixins.ListModelMixin):
+    permission_classes = [permissions.IsAuthenticated]
+    pagination_class = PageNumberPagination
+    serializer_class = NotificationBaseSerializer
 
-        result = SensorService.process_sensor_signal(is_occupied=is_occupied,
-                                                     vehicle_id=vehicle_id,
-                                                     slot_id=slot_id)
+    def get_queryset(self):
+        user = self.request.user
+        if user.is_anonymous:
+            return Notification.objects.none()
+        return Notification.objects.filter(user=user)
 
-        success = status.HTTP_200_OK if result else status.HTTP_400_BAD_REQUEST
-        msg = "Test cảm biến nhận xe thành công." if result else "Test cảm biến nhận xe thất bại"
-        return Response({"message": msg}, status=success)
+    @action(detail=False, methods=['get'], url_path='unread/count')
+    def count_unread(self, request):
+        count_unread = Notification.objects.filter(is_read=False).count()
+        return Response({
+            "message": "Đếm số thông báo chưa đọc thành công",
+            "result": count_unread
+        }, status=status.HTTP_200_OK)
+
+    @action(detail=True, methods=['patch'], url_path='is-read')
+    def is_read(self, request, pk=None):
+        notification = self.get_object()
+        notification.is_read = True
+        notification.save()
+        return Response({"message": "Đánh dấu đã đọc thành công."}, status=status.HTTP_200_OK)
 
 
 def _to_int_or_none(value: Optional[str]) -> Optional[int]:

@@ -13,7 +13,7 @@ from django.utils import timezone
 
 class FinanceService:
     @staticmethod
-    def get_revenue_chart_data():
+    def get_revenue_chart_data(lot_id: int):
         today = timezone.now()
 
         # XỬ LÝ DAILY (7 ngày gần nhất)
@@ -22,16 +22,16 @@ class FinanceService:
 
         data = ParkingLog.objects.filter(
             status=ParkingStatus.OUT,
-            created_date__date__range=[start_date_daily, today]
+            check_out__date__range=[start_date_daily, today]
         ).annotate(
-            date_label=TruncDay('created_date')
+            date_label=TruncDay('check_out')
         ).values('date_label').annotate(
             total=Coalesce(Sum('fee'), 0)
         ).order_by('date_label')
 
         dict_daily = {item['date_label'].date(): item['total'] for item in data}
         for i in range(7):
-            current_day = start_date_daily + timedelta(days=i)
+            current_day = (start_date_daily + timedelta(days=i)).date()
             daily_results.append({
                 "name": current_day.strftime("%a"),
                 "value": dict_daily.get(current_day, 0)

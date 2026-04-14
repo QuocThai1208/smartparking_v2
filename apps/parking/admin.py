@@ -9,7 +9,7 @@ class VehicleAdmin(admin.ModelAdmin):
     autocomplete_fields = ('user',)
 
 class FeeRuleAdmin(admin.ModelAdmin):
-    list_display  = ('fee_type', 'parking_lot', 'amount', 'active', 'effective_from', 'effective_to')
+    list_display  = ('id', 'fee_type', 'parking_lot', 'amount', 'active', 'effective_from', 'effective_to')
     search_fields = ('fee_type',)
     list_filter   = ('fee_type',)
     ordering      = ('-effective_from',)
@@ -25,7 +25,7 @@ class VehicleFaceAdmin(admin.ModelAdmin):
     search_fields = ('id', 'owner_name')
 
 class ParkinglotAdmin(admin.ModelAdmin):
-    list_display  = ('id', 'owner', 'name', 'address', 'latitude', 'longitude', 'moto_slots', 'car_slots', 'bus_slots', 'truck_slots', 'threshold_release')
+    list_display  = ('id', 'owner', 'name', 'address', 'latitude', 'longitude', 'moto_slots', 'car_slots', 'bus_slots', 'truck_slots')
     search_fields = ('id', 'owner')
 
 class ParkingSlotAdmin(admin.ModelAdmin):
@@ -33,7 +33,7 @@ class ParkingSlotAdmin(admin.ModelAdmin):
     search_fields = ('id', 'parking_lot', 'slot_number')
 
 class BookingAdmin(admin.ModelAdmin):
-    list_display = ('id', 'user', 'vehicle', 'slot', 'status', 'start_time', 'end_time', 'fee', 'task_id', 'overtime_task_id')
+    list_display = ('id', 'user', 'vehicle', 'slot', 'status', 'start_time', 'end_time', 'expired_time', 'fee', 'task_id', 'overtime_task_id')
     search_fields = ('id', 'user', 'vehicle', 'slot')
 
 

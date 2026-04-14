@@ -9,13 +9,24 @@ class LotSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = ParkingLot
-        fields = ['id', 'owner_name', 'name', 'address', 'latitude', 'longitude', 'moto_slots', 'car_slots', 'bus_slots', 'truck_slots', 'threshold_release']
+        fields = ['id', 'owner_name', 'name', 'address', 'latitude', 'longitude', 'moto_slots', 'car_slots', 'bus_slots', 'truck_slots']
 
 
 class LotCreateSerializer(serializers.ModelSerializer):
     class Meta:
         model = ParkingLot
-        fields = ['name', 'address', 'latitude', 'longitude', 'moto_slots', 'car_slots', 'bus_slots', 'truck_slots', 'threshold_release']
+        fields = ['name', 'address', 'latitude', 'longitude', 'moto_slots', 'car_slots', 'bus_slots', 'truck_slots']
+
+    def create(self, validated_data):
+        user = self.context['request'].user
+        validated_data['owner'] = user
+        return super().create(validated_data)
+
+
+class LotUpdateSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = ParkingLot
+        fields = ['name', 'address', 'latitude', 'longitude', 'moto_slots', 'car_slots', 'bus_slots', 'truck_slots']
 
     def create(self, validated_data):
         user = self.context['request'].user
@@ -30,7 +41,7 @@ class LotDetailSerializer(serializers.ModelSerializer):
     class Meta:
         model = ParkingLot
         fields = ['id', 'owner_name', 'name', 'address', 'latitude', 'longitude', 'moto_slots', 'car_slots',
-                  'bus_slots', 'truck_slots', 'threshold_release', 'map_svgs', 'slots']
+                  'bus_slots', 'truck_slots', 'map_svgs', 'slots']
 
 class LotSelectSerializer(serializers.ModelSerializer):
     class Meta:

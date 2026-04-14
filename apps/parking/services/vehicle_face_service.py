@@ -13,7 +13,7 @@ class VehicleFaceService:
 
         face_img.seek(0)
         face_path = save_temp_file(face_img)
-        embedding = DetectFaceClient.detect_face(face_path)
+        embedding, _ = DetectFaceClient.detect_face(face_path)
         # 4. Lưu Database
         face_record = VehicleFace.objects.create(
             vehicle=vehicle,
