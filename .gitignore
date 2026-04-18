@@ -50,6 +50,7 @@ staticfiles/
 *.pem
 *.key
 
+docker-compose.yml
 
 # --- IDEs/Editors ---
 .vscode/
