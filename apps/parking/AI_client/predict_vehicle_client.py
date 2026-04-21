@@ -1,7 +1,7 @@
 import os.path
+import traceback
 
 from django.conf import settings
-from ..models import FeeType
 import requests
 
 class PredictVehicleClient:
@@ -41,4 +41,6 @@ class PredictVehicleClient:
                     return ai_data['data'], ai_data['file']
             raise ValueError("AI Service return success: False")
         except Exception as e:
-            raise ValueError("detail", e)
+            error_msg = f"Lỗi gọi AI: {str(e)} \n {traceback.format_exc()}"
+            print(error_msg)  # Để nó hiện lên terminal/log của container
+            raise Exception(error_msg)  # Ném lỗi thực sự để Celery biết mà báo FAILED

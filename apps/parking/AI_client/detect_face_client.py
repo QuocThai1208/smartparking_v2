@@ -1,6 +1,7 @@
 import requests
 from django.conf import settings
 import os
+import traceback
 
 class DetectFaceClient:
     @staticmethod
@@ -20,4 +21,6 @@ class DetectFaceClient:
                     raise ValueError("Không nhận diện dược khuôn mặt")
                 return embedding, processed_face_base64
         except Exception as e:
-            raise ValueError("detail", e)
+            error_msg = f"Lỗi gọi AI: {str(e)} \n {traceback.format_exc()}"
+            print(error_msg)
+            raise Exception(error_msg)
