@@ -21,6 +21,8 @@ CSRF_TRUSTED_ORIGINS = ['https://*.ngrok-free.app']
 FACE_SERVICE_URL = config('FACE_SERVICE_URL', default="http://127.0.0.1:8002/api/v1/extract-face")
 PLATE_SERVICE_URL = config('PLATE_SERVICE_URL', default="http://127.0.0.1:8001/api/v1/predict-vehicle")
 
+GOOGLE_CLIENT_ID = config('GOOGLE_CLIENT_ID', default='')
+
 INSTALLED_APPS = [
     'daphne',
     'channels',
@@ -125,6 +127,7 @@ ASGI_APPLICATION = 'core.asgi.application'
 # Cấu hình Redis làm Broker cho Celery
 REDIS_HOST = config('REDIS_HOST', default='127.0.0.1')
 REDIS_PORT = config('REDIS_PORT', default='6379')
+
 
 CELERY_BROKER_URL = f'redis://{REDIS_HOST}:{REDIS_PORT}/0'
 CELERY_RESULT_BACKEND = f'redis://{REDIS_HOST}:{REDIS_PORT}/0'

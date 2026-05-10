@@ -1,3 +1,5 @@
+from rest_framework import serializers
+
 from ..models import Vehicle, VehicleFace
 from ..AI_client.detect_face_client import DetectFaceClient
 from ..utils import save_temp_file
@@ -9,7 +11,7 @@ class VehicleFaceService:
         try:
             vehicle = Vehicle.objects.get(id=vehicle_id)
         except Vehicle.DoesNotExist:
-            raise ValueError("Không tìm thấy thông tin xe.")
+            raise serializers.ValidationError({"detail" : "Không tìm thấy thông tin xe."})
 
         face_img.seek(0)
         face_path = save_temp_file(face_img)

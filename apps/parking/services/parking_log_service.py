@@ -33,7 +33,7 @@ class ParkingLogStatsService:
             count=Count('id')
         ).order_by('hour')
 
-        #Tạo dictionary để tra cứu nhanh: {8: 150, 17: 200, ...}
+        # Tạo dictionary để tra cứu nhanh: {8: 150, 17: 200, ...}
         data_dict = {item['hour']: item['count'] for item in data}
 
         results = []
@@ -63,7 +63,7 @@ class ParkingLogStatsService:
             raise ValidationError({"vehicle_type": f"Loại xe {vehicle_type} không hợp lệ"})
 
         lot = get_object_or_404(ParkingLot, id=lot_id)
-        total_slots=getattr(lot, field_name)
+        total_slots = getattr(lot, field_name)
 
         occupied = ParkingLog.objects.filter(status=ParkingStatus.IN, vehicle__type=vehicle_type).count()
         return {
@@ -73,13 +73,25 @@ class ParkingLogStatsService:
         }
 
     @staticmethod
-    def get_total_count_parking(user: User,
-                                period_value: str,
-                                current_start: Optional[date] = None,
-                                current_end: Optional[date] = None,
-                                prev_start: Optional[date] = None,
-                                prev_end: Optional[date] = None,
-                                ):
+    def get_count_parking(user: User,
+                          df: Optional[date] = None,
+                          dt: Optional[date] = None):
+        filters_current: dict[str, Any] = {"user": user, "status": ParkingStatus.OUT}
+        if df:
+            filters_current["check_out__date__gte"] = df
+        if dt:
+            filters_current["check_out__date__lte"] = dt
+        count = ParkingLog.objects.filter(**filters_current).count()
+        return {"total": count}
+
+    @staticmethod
+    def get_count_parking_compare(user: User,
+                                  period_value: str,
+                                  current_start: Optional[date] = None,
+                                  current_end: Optional[date] = None,
+                                  prev_start: Optional[date] = None,
+                                  prev_end: Optional[date] = None,
+                                  ):
         filters_current: dict[str, Any] = {}
 
         if user.user_role == UserRole.CUSTOMER:
@@ -89,16 +101,16 @@ class ParkingLogStatsService:
             filters_current["status"] = ParkingStatus.OUT
 
         if current_start:
-            filters_current["created_date__date__gte"] = current_start
+            filters_current["check_out__date__gte"] = current_start
         if current_end:
-            filters_current["created_date__date__lte"] = current_end
+            filters_current["check_out__date__lte"] = current_end
 
         current_count = ParkingLog.objects.filter(**filters_current).count()
 
         if prev_start and prev_end:
             filters_prev: dict[str, Any] = {
-                "created_date__date__gte": prev_start,
-                "created_date__date__lte": prev_end
+                "check_out__date__gte": prev_start,
+                "check_out__date__lte": prev_end
             }
 
             if user.user_role == UserRole.CUSTOMER:
@@ -106,7 +118,6 @@ class ParkingLogStatsService:
                 filters_prev["status"] = ParkingStatus.OUT
             elif user.user_role in [UserRole.MANAGE, UserRole.STAFF, UserRole.ADMIN]:
                 filters_prev["status"] = ParkingStatus.OUT
-
 
             prev_count = ParkingLog.objects.filter(**filters_prev).count()
 
@@ -163,7 +174,8 @@ class ParkingLogService:
 
             penalty_fee = 0
             if booking.end_time < log.check_out:
-                base_penalty, fee_penalty_detail = ParkingLogService.calculate_fee(log.fee_rule, booking.end_time, log.check_out)
+                base_penalty, fee_penalty_detail = ParkingLogService.calculate_fee(log.fee_rule, booking.end_time,
+                                                                                   log.check_out)
                 penalty_fee = base_penalty * 3
                 for item in fee_penalty_detail:
                     item['type'] = "Phí phạt đỗ quá hạn"
@@ -184,7 +196,7 @@ class ParkingLogService:
 
     # HÀM: tính phí giữ xe
     @staticmethod
-    def calculate_fee(fee_rule: FeeRule, start_time, end_time,):
+    def calculate_fee(fee_rule: FeeRule, start_time, end_time, ):
         try:
             if fee_rule.fee_type not in [FeeType.MOTORCYCLE, FeeType.CAR, FeeType.BUS, FeeType.TRUCK]:
                 raise ValueError(f"Unsupport fee_type: {fee_rule.fee_type}")
@@ -204,7 +216,7 @@ class ParkingLogService:
 
                 # Tính số giờ trong phân đoạn của ngày này
                 segment_minutes = (segment_end - current_time).total_seconds() / 60
-                segment_hours = math.ceil((segment_minutes - 5) / 60) # cho khách hàng 5p để di chuyển từ ô đỗ ra cổng
+                segment_hours = math.ceil((segment_minutes - 5) / 60)  # cho khách hàng 5p để di chuyển từ ô đỗ ra cổng
 
                 unit_price = fee_rule.amount  # Giá mỗi giờ
                 day_fee = segment_hours * unit_price
@@ -224,7 +236,6 @@ class ParkingLogService:
             return int(final_fee), fee_detail
         except Exception as e:
             raise ValidationError(f"detail: {e}")
-
 
     # HÀM: Cập nhật nhật phí gửi xe
     @staticmethod
@@ -254,17 +265,18 @@ class ParkingLogService:
             status=BookingStatus.PARKING,
         ).first()
 
-        fees_detail = [] # danh sách các chi phí cần thanh toán
+        fees_detail = []  # danh sách các chi phí cần thanh toán
         final_amount_to_pay = 0
         if booking:
             print("tìm thấy booking.")
             total_fee = booking.fee
             if log.check_out > booking.end_time:
                 base_penalty, _ = ParkingLogService.calculate_fee(log.fee_rule, booking.end_time, log.check_out)
-                fee_penalty = base_penalty * 3 # Phạt tiền đỗ gấp 3 lần giá gốc
+                fee_penalty = base_penalty * 3  # Phạt tiền đỗ gấp 3 lần giá gốc
                 final_amount_to_pay = fee_penalty
                 log.fee = total_fee + fee_penalty
-                fees_detail.append({'fee': fee_penalty, 'type': PaymentType.PENALTY, 'description': 'Thanh toán phí phạt đỗ quá hạn'})
+                fees_detail.append(
+                    {'fee': fee_penalty, 'type': PaymentType.PENALTY, 'description': 'Thanh toán phí phạt đỗ quá hạn'})
             else:
                 # Đỗ đúng giờ hoặc ra sớm
                 final_amount_to_pay = 0
@@ -290,7 +302,8 @@ class ParkingLogService:
 
     # HÀM: Tạo mới nhật kí gửi xe
     @staticmethod
-    def create_parking_log(parking_lot_id, v: Vehicle, fee_type: FeeType, face: VehicleFace, booking: Booking) -> tuple[bool, str]:
+    def create_parking_log(parking_lot_id, v: Vehicle, fee_type: FeeType, face: VehicleFace, booking: Booking) -> tuple[
+        bool, str]:
         try:
             exist_p = ParkingLog.objects.filter(user=v.user, vehicle=v, status=ParkingStatus.IN).first()
             if exist_p:

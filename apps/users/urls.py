@@ -7,7 +7,6 @@ from .views import LoginView, UserProfileView, RegisterView
 
 router = DefaultRouter(trailing_slash=False)
 router.register('users', views.UserViewSet, basename='user')
-router.register('admin', views.AdminViewSet, basename='admin')
 router.register('employees', views.EmployeeViewSet, basename='employee')
 
 urlpatterns = [

@@ -15,6 +15,7 @@ router.register('parking-lots', views.LotViewSet, basename='parking-lot')
 router.register('parking-slots', views.SlotViewSet, basename='parking-slot')
 router.register('bookings', views.BookingViewSet, basename='booking')
 router.register('notifications', views.NotificationViewSet, basename='notification')
+router.register('job-positions', views.JobPositionViewSet, basename='job-position')
 
 urlpatterns = [
     path('', include(router.urls)),

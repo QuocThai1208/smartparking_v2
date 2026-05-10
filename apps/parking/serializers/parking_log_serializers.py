@@ -30,9 +30,11 @@ class ParkingLogSerializer(serializers.ModelSerializer):
         return obj.user.full_name
 
     def get_check_in(self, obj):
+        if not obj.check_in: return None
         return obj.check_in.strftime("%H:%M:%S %d/%m/%Y")
 
     def get_check_out(self, obj):
+        if not obj.check_out: return None
         return obj.check_out.strftime("%H:%M:%S %d/%m/%Y")
 
 

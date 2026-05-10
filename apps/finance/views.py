@@ -1,7 +1,10 @@
 import hashlib
 import hmac
+from datetime import date, timedelta
 from typing import Optional
 from decimal import Decimal
+
+from dateutil.relativedelta import relativedelta
 from django.conf import settings
 from django.db import transaction
 from django.views.decorators.csrf import csrf_exempt
@@ -209,19 +212,21 @@ class StatsViewSet(viewsets.GenericViewSet):
             return Response({"detail": "Thông tin lọc không hợp lệ"}, status=status.HTTP_400_BAD_REQUEST)
 
         current_start, current_end = FinanceService.create_df_dt(day, month, year)
-
+        current_date = date(year, month if month else 1, day if day else 1)
         period_value = ""
         prev_start = None
         prev_end = None
         if day and month and year:
-            period_value = f"ngày {day - 1}/{month}/{year}"
-            prev_start, prev_end = ParkingLogService.create_df_dt(day - 1, month, year)
+            prev_date = current_date - timedelta(days=1)
+            period_value = f"ngày {prev_date.day}/{prev_date.month}/{prev_date.year}"
+            prev_start, prev_end = ParkingLogService.create_df_dt(prev_date.day, prev_date.month, prev_date.year)
         elif month and year and not day:
-            period_value = f"tháng {month - 1}/{year}"
-            prev_start, prev_end = ParkingLogService.create_df_dt(day, month - 1, year)
+            prev_date = current_date - relativedelta(months=1)
+            period_value = f"tháng {prev_date.month}/{prev_date.year}"
+            prev_start, prev_end = ParkingLogService.create_df_dt(None, prev_date.month, prev_date.year)
         elif year and not month and not day:
             period_value = f"năm {year - 1}"
-            prev_start, prev_end = ParkingLogService.create_df_dt(day, month, year - 1)
+            prev_start, prev_end = ParkingLogService.create_df_dt(None, None, year - 1)
 
         response = FinanceService.compare_monthly_revenue(user,
                                                           period_value,
