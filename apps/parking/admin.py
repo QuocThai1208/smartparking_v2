@@ -1,6 +1,7 @@
 from django.contrib import admin
-from .models import Vehicle, FeeRule, ParkingLog, VehicleFace, ParkingLot, ParkingSlot, Booking, MapSvg
+from .models import Vehicle, FeeRule, ParkingLog, VehicleFace, ParkingLot, ParkingSlot, Booking, MapSvg, Notification
 from .admin_site import custom_admin_site
+from apps.users.models import JobPosition
 
 class VehicleAdmin(admin.ModelAdmin):
     list_display  = ('id', 'license_plate', 'type', 'color', 'brand', 'name', 'user', 'is_approved', 'image')
@@ -41,6 +42,14 @@ class MapSvgAdmin(admin.ModelAdmin):
     list_display = ('id', 'parking_lot', 'map_svg', 'floor', 'floor_display')
     search_fields = ('id', 'parking_lot', 'map_svg')
 
+class NotificationAdmin(admin.ModelAdmin):
+    list_display = ('id', 'user', 'title', 'content', 'notification_type', 'is_read')
+    search_fields = ('id', 'user')
+
+class JobPositionAdmin(admin.ModelAdmin):
+    list_display = ('id', 'title', 'description', 'base_salary')
+    search_fields = ('id', 'title')
+
 custom_admin_site.register(Vehicle, VehicleAdmin)
 custom_admin_site.register(FeeRule, FeeRuleAdmin)
 custom_admin_site.register(ParkingLog, ParkingLogAdmin)
@@ -49,3 +58,5 @@ custom_admin_site.register(ParkingSlot, ParkingSlotAdmin)
 custom_admin_site.register(ParkingLot, ParkinglotAdmin)
 custom_admin_site.register(Booking, BookingAdmin)
 custom_admin_site.register(MapSvg, MapSvgAdmin)
+custom_admin_site.register(Notification, NotificationAdmin)
+custom_admin_site.register(JobPosition, JobPositionAdmin)

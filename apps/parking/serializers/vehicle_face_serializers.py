@@ -13,7 +13,7 @@ class VehicleFaceSerializer(serializers.ModelSerializer):
 class FaceRegistrationInputSerializer(serializers.Serializer):
     vehicle_id = serializers.IntegerField(help_text="ID của xe cần đăng ký mặt")
     owner_name = serializers.CharField(max_length=100, help_text="Tên người lái")
-    relationship = serializers.CharField(max_length=100, help_text="Tên người lái")
+    relationship = serializers.CharField(max_length=100, help_text="Mối quan hệ với chủ xe")
     face_img = serializers.ImageField(help_text="Ảnh chụp khuôn mặt")
     is_default = serializers.BooleanField(default=False)
 

@@ -46,9 +46,9 @@ class FinanceService:
 
         data_monthly = ParkingLog.objects.filter(
             status=ParkingStatus.OUT,
-            created_date__date__range=[start_date_monthly, today]
+            check_out__date__range=[start_date_monthly, today]
         ).annotate(
-            month_label=TruncMonth('created_date')
+            month_label=TruncMonth('check_out')
         ).values('month_label').annotate(
             total=Coalesce(Sum('fee'), 0)
         ).order_by('month_label')
@@ -83,9 +83,9 @@ class FinanceService:
             filters["status"] = ParkingStatus.OUT
 
         if date_from:
-            filters["created_date__date__gte"] = date_from
+            filters["check_out__date__gte"] = date_from
         if date_to:
-            filters["created_date__date__lte"] = date_to
+            filters["check_out__date__lte"] = date_to
 
         total_revenue = ParkingLog.objects.filter(**filters).aggregate(total=Coalesce(Sum("fee"), 0))["total"]
         return total_revenue
@@ -125,9 +125,9 @@ class FinanceService:
             "status": ParkingStatus.OUT,
         }
         if date_from:
-            filters["created_date__date__gte"] = date_from
+            filters["check_out__date__gte"] = date_from
         if date_to:
-            filters["created_date__date__lte"] = date_to
+            filters["check_out__date__lte"] = date_to
 
         results = (ParkingLog.objects.filter(**filters)
                    .values("user__full_name", "user__email")
@@ -158,9 +158,9 @@ class FinanceService:
             "status": ParkingStatus.OUT,
         }
         if date_from:
-            filters["created_date__date__gte"] = date_from
+            filters["check_out__date__gte"] = date_from
         if date_to:
-            filters["created_date__date__lte"] = date_to
+            filters["check_out__date__lte"] = date_to
 
         results = ParkingLog.objects.filter(**filters).values(
             vehicle_type=F("vehicle__type")

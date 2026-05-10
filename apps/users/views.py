@@ -1,18 +1,17 @@
 from typing import Optional
 
+from django.conf import settings
 from rest_framework import viewsets, permissions, status, generics, mixins
 from rest_framework.decorators import action
 from rest_framework.exceptions import ValidationError
 from rest_framework.response import Response
 from rest_framework_simplejwt.views import TokenObtainPairView
 
-from .models import User, UserRole
+from .models import User, UserRole, EmployeeProfile
 from .pagination import EmployeesPagination
 from .serializers.token_serializers import TokenSerializer
-from .serializers.user_serializers import CustomerRegisterSerializer, UserSerializer, StaffRegisterSerializer, \
+from .serializers.user_serializers import CustomerRegisterSerializer, UserSerializer, StaffSerializer, \
     BaseUserSerializer, UpdateEmployeeSerializer, UpdateActiveSerializer
-from .serializers import user_serializers
-from .services.user_services import UserService
 from ..finance.services.finance_service import FinanceService
 from . import perms
 
@@ -85,95 +84,49 @@ class UserViewSet(viewsets.GenericViewSet):
         return Response(payload, status=status.HTTP_200_OK)
 
 
-class AdminViewSet(viewsets.GenericViewSet):
-    permission_classes = [perms.IsManageOrAdmin]
+class EmployeeViewSet(viewsets.GenericViewSet,
+                      mixins.CreateModelMixin,
+                      mixins.ListModelMixin):
+    permission_classes = [perms.IsManage]
     serializer_class = BaseUserSerializer
+    queryset = User.objects.all()
     pagination_class = EmployeesPagination
 
     def get_serializer_class(self):
-        if self.action in ["staff_register", "manage_register"]:
-            return StaffRegisterSerializer
-        return super().get_serializer_class()
-
-    def get_permissions(self):
-        if self.action == "manage_register":
-            return [perms.IsAdmin()]
-        if self.action in ["staff_register", "get_employees"]:
-            return [perms.IsManageOrAdmin()]
-        if self.action == "get_employees":
-            return [perms.IsEmployee()]
-        return super().get_permissions()
-
-    def _register_user(self, request, role, success_message):
-        serializer = self.get_serializer(data=request.data, context={'role': role})
-        serializer.is_valid(raise_exception=True)
-        user = serializer.save()
-
-        return Response({
-            "message": success_message,
-            "result": BaseUserSerializer(user).data
-        }, status=status.HTTP_201_CREATED)
-
-    @action(detail=False, methods=['post'], url_path='staff/register')
-    def staff_register(self, request):
-        return self._register_user(request, UserRole.STAFF, "Tạo tài khoản nhân viên thành công.")
-
-    @action(detail=False, methods=['post'], url_path='manage/register')
-    def manage_register(self, request):
-        return self._register_user(request, UserRole.MANAGE, "Tạo tài khoản quản lý thành công.")
-
-    @action(detail=False, methods=['get'], url_path='employees')
-    def get_employees(self, request):
-        full_name = request.query_params.get("full_name", "")
-        role = request.query_params.get("role", "")
-
-        employees = UserService.get_all_employees(full_name, role)
-
-        paginator = self.pagination_class()
-        page = paginator.paginate_queryset(employees, request)
-
-        if page is not None:
-            serializer = self.get_serializer(employees, many=True)
-            return paginator.get_paginated_response(serializer.data)
-
-        serializer = self.get_serializer(page, many=True)
-        return Response({
-            "message": "Lấy toàn bộ danh sách nhân viên thành công",
-            "result": serializer.data
-        }, status=status.HTTP_200_OK)
-
-    @action(detail=False, methods=['get'], url_path='customers')
-    def get_customer(self, request):
-        full_name = request.query_params.get("full_name", "")
-        customers = UserService.get_all_customer(full_name)
-
-        paginator = self.pagination_class()
-        page = paginator.paginate_queryset(customers, request)
-        if page is not None:
-            serializer = self.get_serializer(page, many=True)
-            return paginator.get_paginated_response(serializer.data)
-
-        serializer = self.get_serializer(customers, many=True)
-        return Response({
-            "message": "Lấy toàn bộ danh sách khách hàng thành công",
-            "result": serializer.data
-        }, status=status.HTTP_200_OK)
-
-class EmployeeViewSet(viewsets.GenericViewSet, mixins.UpdateModelMixin):
-    queryset = User.objects.all()
-    serializer_class = BaseUserSerializer
-
-    def get_serializer_class(self):
-        if self.action in ['update', 'partial_update']:
-            return UpdateEmployeeSerializer
+        if self.action in ['create', 'list']:
+            return StaffSerializer
         if self.action == 'update_active':
             return UpdateActiveSerializer
         return super().get_serializer_class()
 
-    def get_permissions(self):
-        if self.action in ['update', 'partial_update', 'update_active']:
-            return [permissions.IsAuthenticated(), perms.CanUpdateEmployee()]
-        return [permissions.IsAuthenticated()]
+    def create(self, request, *args, **kwargs):
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        user = serializer.save()
+
+        return Response({
+            "message": "Tạo tài khoản nhân viên thành công.",
+            "result": BaseUserSerializer(user).data
+        }, status=status.HTTP_201_CREATED)
+
+    def list(self, request, *args, **kwargs):
+        parking_lot_id = request.query_params.get("parking_lot", "")
+        fullname = request.query_params.get("fullname", "")
+
+        if not parking_lot_id:
+            return Response(None, status=status.HTTP_200_OK)
+        queryset = EmployeeProfile.objects.filter(parking_lot_id=parking_lot_id)
+
+        if fullname:
+            queryset = queryset.filter(user__full_name__istartswith=fullname)
+
+        page = self.paginate_queryset(queryset)
+        if page is not None:
+            serializer = self.get_serializer(page, many=True)
+            return self.get_paginated_response(serializer.data)
+
+        serializer = self.get_serializer(queryset, many=True)
+        return Response(serializer.data, status=status.HTTP_200_OK)
 
     @action(detail=True, methods=['patch'], url_path='active')
     def update_active(self, request, pk=None):

@@ -1,6 +1,8 @@
 from typing import Optional
 import json
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
+
+from dateutil.relativedelta import relativedelta
 from django.utils import timezone
 from django.db import transaction
 from django.utils.timezone import make_aware
@@ -14,6 +16,7 @@ from rest_framework.response import Response
 
 from .serializers.MapSvgSerializers import MapSvgCreateSerializer
 from .serializers.booking_serializers import BookingCreateSerializer, BookingSerializer, BookingReviewSerializer
+from .serializers.job_position_serializers import BaseJobPositionSerializer
 from .serializers.notification_serializers import NotificationBaseSerializer
 from .serializers.parking_lot_serializers import LotCreateSerializer, LotSerializer, LotDetailSerializer, \
     LotSelectSerializer, LotUpdateSerializer
@@ -33,6 +36,7 @@ from .serializers.parking_serializers import CheckInSerializer, CheckOutSerializ
 from .services.parking_service import ParkingService
 from .services.parking_log_service import ParkingLogService, ParkingLogStatsService
 from .services.barrier_services import BarrierService
+from ..users.models import JobPosition
 
 
 class VehicleViewSet(viewsets.ModelViewSet):
@@ -70,12 +74,14 @@ class LotViewSet(viewsets.GenericViewSet,
     def get_serializer_class(self):
         if self.action == 'create':
             return LotCreateSerializer
-        elif self.action == 'retrieve':
+        if self.action == 'retrieve':
             return LotDetailSerializer
-        elif self.action == 'get_select':
+        if self.action == 'get_select':
             return LotSelectSerializer
-        elif self.action in ['update', 'partial_update']:
+        if self.action in ['update', 'partial_update']:
             return LotUpdateSerializer
+        if self.action == 'create_job_position':
+            return BaseJobPositionSerializer
         return LotSerializer
 
     def get_permissions(self):
@@ -141,6 +147,7 @@ class LotViewSet(viewsets.GenericViewSet,
                 "message": "Lưu sơ đồ và slot thành công",
             }, status=status.HTTP_201_CREATED)
         except Exception as e:
+            print(f"error {str(e)}")
             return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
 
 
@@ -427,9 +434,26 @@ class StatsViewSet(viewsets.GenericViewSet):
             "result": response
         }, status=status.HTTP_200_OK)
 
-    @action(methods=['get'], detail=False, url_path='parking-logs/compare',
+    @action(methods=['get'], detail=False, url_path='parking-logs/count',
             permission_classes=[permissions.IsAuthenticated])
     def get_count_parking_log(self, request):
+        user = request.user
+        try:
+            day = _to_int_or_none(self.request.query_params.get("day"))
+            month = _to_int_or_none(self.request.query_params.get("month"))
+            year = _to_int_or_none(self.request.query_params.get("year"))
+        except ValueError:
+            return Response({"detail": "Thông tin lọc không hợp lệ"}, status=status.HTTP_400_BAD_REQUEST)
+        df, dt = ParkingLogService.create_df_dt(day, month, year)
+        result = ParkingLogStatsService.get_count_parking(user, df, dt)
+        return Response({
+            "message": "Xem số lượng xe giữ thành công.",
+            "result": result
+        }, status=status.HTTP_200_OK)
+
+    @action(methods=['get'], detail=False, url_path='parking-logs/compare',
+            permission_classes=[permissions.IsAuthenticated])
+    def get_count_parking_log_compare(self, request):
         user = self.request.user
         try:
             day = _to_int_or_none(self.request.query_params.get("day"))
@@ -439,26 +463,28 @@ class StatsViewSet(viewsets.GenericViewSet):
             return Response({"detail": "Thông tin lọc không hợp lệ"}, status=status.HTTP_400_BAD_REQUEST)
 
         current_start, current_end = ParkingLogService.create_df_dt(day, month, year)
-
+        current_date = date(year, month if month else 1, day if day else 1)
         period_value = ""
         prev_start = None
         prev_end = None
         if day and month and year:
-            period_value = f"ngày {day - 1}/{month}/{year}"
-            prev_start, prev_end = ParkingLogService.create_df_dt(day - 1, month, year)
+            prev_date = current_date - timedelta(days=1)
+            period_value = f"ngày {prev_date.day}/{prev_date.month}/{prev_date.year}"
+            prev_start, prev_end = ParkingLogService.create_df_dt(prev_date.day, prev_date.month, prev_date.year)
         elif month and year and not day:
-            period_value = f"tháng {month - 1}/{year}"
-            prev_start, prev_end = ParkingLogService.create_df_dt(day, month - 1, year)
+            prev_date = current_date - relativedelta(months=1)
+            period_value = f"tháng {prev_date.month}/{prev_date.year}"
+            prev_start, prev_end = ParkingLogService.create_df_dt(None, prev_date.month, prev_date.year)
         elif year and not month and not day:
             period_value = f"năm {year - 1}"
             prev_start, prev_end = ParkingLogService.create_df_dt(day, month, year - 1)
 
-        result = ParkingLogStatsService.get_total_count_parking(user,
-                                                                period_value,
-                                                                current_start,
-                                                                current_end,
-                                                                prev_start,
-                                                                prev_end)
+        result = ParkingLogStatsService.get_count_parking_compare(user,
+                                                                  period_value,
+                                                                  current_start,
+                                                                  current_end,
+                                                                  prev_start,
+                                                                  prev_end)
         return Response({
             "message": "Xem số lượng xe giữ thành công.",
             "result": result
@@ -510,6 +536,12 @@ class NotificationViewSet(viewsets.GenericViewSet, mixins.ListModelMixin):
         notification.is_read = True
         notification.save()
         return Response({"message": "Đánh dấu đã đọc thành công."}, status=status.HTTP_200_OK)
+
+
+class JobPositionViewSet(viewsets.GenericViewSet, mixins.ListModelMixin):
+    permission_classes = [perms.IsManage]
+    serializer_class = BaseJobPositionSerializer
+    queryset = JobPosition.objects.all()
 
 
 def _to_int_or_none(value: Optional[str]) -> Optional[int]:
