@@ -102,11 +102,11 @@ class EmployeeViewSet(viewsets.GenericViewSet,
     def create(self, request, *args, **kwargs):
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
-        user = serializer.save()
+        serializer.save()
 
         return Response({
             "message": "Tạo tài khoản nhân viên thành công.",
-            "result": BaseUserSerializer(user).data
+            "result": serializer.data
         }, status=status.HTTP_201_CREATED)
 
     def list(self, request, *args, **kwargs):

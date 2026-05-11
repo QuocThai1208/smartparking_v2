@@ -3,7 +3,7 @@ from ..models import FeeRule
 
 
 class FeeRuleSerializer(serializers.ModelSerializer):
-    parking_lot_id = serializers.ReadOnlyField(source='parking_lot.id')
+    parking_lot_id = serializers.IntegerField(write_only=True)
 
     class Meta:
         model = FeeRule
