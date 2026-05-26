@@ -13,17 +13,23 @@ from rest_framework.decorators import action
 from rest_framework.exceptions import ValidationError
 from rest_framework.pagination import PageNumberPagination
 from rest_framework.response import Response
+from rest_framework.viewsets import GenericViewSet
 
 from .serializers.MapSvgSerializers import MapSvgCreateSerializer
 from .serializers.booking_serializers import BookingCreateSerializer, BookingSerializer, BookingReviewSerializer
 from .serializers.job_position_serializers import BaseJobPositionSerializer
+from .serializers.monthly_subscription_serializers import BaseMonthlySubscriptionSerializer, \
+    CreateMonthlySubscriptionSerializer
 from .serializers.notification_serializers import NotificationBaseSerializer
 from .serializers.parking_lot_serializers import LotCreateSerializer, LotSerializer, LotDetailSerializer, \
     LotSelectSerializer, LotUpdateSerializer
 from .serializers.parking_slot_serializers import SlotCreateSerializer
+from .serializers.subscription_package_serializers import BaseSubscriptionPackageSerializer, \
+    CreateSubscriptionPackageSerializer, UpdateSubscriptionPackageSerializer
 from ..users import perms
 
-from .models import Vehicle, FeeRule, ParkingLog, ParkingStatus, ParkingLot, ParkingSlot, Booking, Notification
+from .models import Vehicle, FeeRule, ParkingLog, ParkingStatus, ParkingLot, ParkingSlot, Booking, Notification, \
+    SubscriptionPackage, MonthlySubscription
 
 from .services.vehicle_service import VehicleService
 from .serializers.vehicle_serializers import VehicleSerializer, VehicleCreateSerializer
@@ -542,6 +548,51 @@ class JobPositionViewSet(viewsets.GenericViewSet, mixins.ListModelMixin):
     permission_classes = [perms.IsManage]
     serializer_class = BaseJobPositionSerializer
     queryset = JobPosition.objects.all()
+
+
+class SubscriptionPackageViewSet(viewsets.GenericViewSet,
+                                 mixins.ListModelMixin,
+                                 mixins.CreateModelMixin,
+                                 mixins.UpdateModelMixin):
+    permission_classes = [permissions.IsAuthenticated, perms.IsParkingLotOwner]
+    serializer_class = BaseSubscriptionPackageSerializer
+
+    def get_queryset(self):
+        if self.action == 'list':
+            parking_lot_id = self.request.query_params.get("parking_lot_id", None)
+            if parking_lot_id:
+                parking_lot_id = int(parking_lot_id)
+                return SubscriptionPackage.objects.filter(parking_lot_id=parking_lot_id)
+            return SubscriptionPackage.objects.none()
+        return SubscriptionPackage.objects.all()
+
+    def get_serializer_class(self):
+        if self.action == 'create':
+            return CreateSubscriptionPackageSerializer
+        if self.action in ['update', 'partial_update']:
+            return UpdateSubscriptionPackageSerializer
+        return self.serializer_class
+
+
+
+class MonthlySubscriptionViewSet(viewsets.GenericViewSet,
+                                 mixins.ListModelMixin,
+                                 mixins.CreateModelMixin,
+                                 mixins.RetrieveModelMixin):
+    permission_classes = [permissions.IsAuthenticated, perms.IsCustomerAndVehicleOwner]
+    pagination_class = PageNumberPagination
+    serializer_class = BaseMonthlySubscriptionSerializer
+
+    def get_queryset(self):
+        user = self.request.user
+        if user.is_anonymous:
+            return MonthlySubscription.objects.none()
+        return MonthlySubscription.objects.filter(user=user)
+
+    def get_serializer_class(self):
+        if self.action == 'create':
+            return CreateMonthlySubscriptionSerializer
+        return self.serializer_class
 
 
 def _to_int_or_none(value: Optional[str]) -> Optional[int]:

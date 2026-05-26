@@ -16,6 +16,8 @@ router.register('parking-slots', views.SlotViewSet, basename='parking-slot')
 router.register('bookings', views.BookingViewSet, basename='booking')
 router.register('notifications', views.NotificationViewSet, basename='notification')
 router.register('job-positions', views.JobPositionViewSet, basename='job-position')
+router.register('subscription_packages', views.SubscriptionPackageViewSet, basename='subscription_package')
+router.register('monthly_subscriptions', views.MonthlySubscriptionViewSet, basename='monthly_subscription')
 
 urlpatterns = [
     path('', include(router.urls)),

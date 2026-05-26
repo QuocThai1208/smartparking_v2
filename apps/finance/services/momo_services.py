@@ -10,8 +10,8 @@ class MomoService:
         self.access_key = settings.MOMO_ACCESS_KEY
         self.secret_key = settings.MOMO_SECRET_KEY
         self.endpoint = 'https://test-payment.momo.vn/v2/gateway/api/create'
-        self.ipn_url = 'https://47a3-123-20-217-17.ngrok-free.app/api/payment-momo/webhook'
-        self.return_url = 'exp+parkingmobileapp://wallet'
+        self.ipn_url = 'https://4ed4-123-20-217-178.ngrok-free.app/api/payment-momo/webhook'
+        self.return_url = 'exp://192.168.88.139:8081'
 
     def create_payment(self, user_id, amount, description):
         order_id = str(uuid.uuid4())

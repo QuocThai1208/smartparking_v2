@@ -1,5 +1,6 @@
 from rest_framework import permissions
 from .models import UserRole
+from ..parking.models import Vehicle
 
 
 class IsVehicleOwner(permissions.IsAuthenticated):
@@ -88,3 +89,34 @@ class IsStaffOrWriteRestricted(permissions.IsAuthenticated):
         if not super().has_permission(request, view):
             return False
         return request.user.user_role == UserRole.STAFF or request.user.user_role == UserRole.ADMIN
+
+
+class IsParkingLotOwner(permissions.BasePermission):
+    def has_object_permission(self, request, view, obj):
+        if hasattr(obj, 'owner'):
+            return obj.owner == request.user
+
+        if hasattr(obj, 'parking_lot'):
+            return obj.parking_lot.owner == request.user
+
+        return False
+
+
+class IsCustomerAndVehicleOwner(permissions.BasePermission):
+    def has_permission(self, request, view):
+        if view.action == 'create':
+            user = request.user
+
+            if hasattr(user, 'user_role') and user.user_role != UserRole.CUSTOMER:
+                return False
+            vehicle_id = request.data.get('vehicle')
+            if not vehicle_id:
+                return True
+
+            try:
+                vehicle = Vehicle.objects.get(pk=vehicle_id)
+                return vehicle.user == request.user
+            except Vehicle.DoesNotExist:
+                return True
+
+        return True

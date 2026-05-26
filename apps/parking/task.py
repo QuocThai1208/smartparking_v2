@@ -90,6 +90,7 @@ def process_logic_in(parking_lot_id, res, embedding):
             print("Phương tiện này chưa đăng ký khuôn mặt chủ xe")
             return False, "Phương tiện này chưa đăng ký khuôn mặt chủ xe", None
 
+
         best_face = facial_verification_check_in(all_faces, embedding)
         if best_face is None:
             print("Xác minh khuôn mặt thất bại")
@@ -279,14 +280,14 @@ def calculate_distance(embedding1, embedding2):
 def facial_verification_check_in(all_faces, embedding):
     best_distance = float('inf')
     best_face = None
-    threshold = 0.5
+    threshold = 0.4
 
     for face_obj in all_faces:
         dist = calculate_distance(embedding, face_obj.face_vector)
         if dist < best_distance:
             best_distance = dist
             best_face = face_obj
-
+    print(f"best_distance: {best_distance}")
     if best_distance <= threshold and best_face:
         return best_face
     return None

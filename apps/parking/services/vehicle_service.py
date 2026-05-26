@@ -30,7 +30,7 @@ class VehicleService:
 
         front_path = save_temp_file(image_front)
         plate_path = save_temp_file(image_plate)
-        res = PredictVehicleClient.prodict_vehicle(front_path, plate_path)
+        res, _ = PredictVehicleClient.prodict_vehicle(front_path, plate_path)
 
         type_data = res['attributes']['type']
 

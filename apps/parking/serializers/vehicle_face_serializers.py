@@ -7,7 +7,12 @@ class VehicleFaceSerializer(serializers.ModelSerializer):
     vehicle_name = serializers.ReadOnlyField(source='vehicle.name')
     class Meta:
         model = VehicleFace
-        fields = ['id', 'vehicle', 'owner_name', 'face_img', 'is_default', 'created_date']
+        fields = ['id', 'vehicle', 'owner_name', 'face_img', 'is_default', 'created_date', 'vehicle_name', 'face_img']
+
+    def to_representation(self, instance):
+        data = super().to_representation(instance)
+        data['face_img'] = instance.face_img.url if instance.face_img else ''
+        return data
 
 
 class FaceRegistrationInputSerializer(serializers.Serializer):
@@ -23,6 +28,4 @@ class FaceRegistrationInputSerializer(serializers.Serializer):
 
     #Kết quả trả về
     def to_representation(self, instance):
-        data = super().to_representation(instance)
-        data['face_img'] = instance.face_img.url if instance.face_img else ''
-        return VehicleFaceSerializer(data).data
+        return VehicleFaceSerializer(instance, context=self.context).data

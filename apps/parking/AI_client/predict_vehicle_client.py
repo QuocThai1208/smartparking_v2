@@ -25,6 +25,7 @@ class PredictVehicleClient:
         url = settings.PLATE_SERVICE_URL
 
         try:
+            print("dang xu ly detect vehicle")
             with open(image_front_path, 'rb') as f_front, open(image_plate_path, 'rb') as f_plate:
                 # Chuẩn bị file để gửi qua POST request
                 files = {
@@ -32,8 +33,10 @@ class PredictVehicleClient:
                     'image_plate': (os.path.basename(image_plate_path), f_plate, 'image/jpeg'),
                 }
 
+                print("chuan bi gui yeu cau")
                 # Gửi yêu cầu sang AI Service
                 response = requests.post(url, files=files, timeout=60)
+                print("da nhan duoc ket qua")
                 response.raise_for_status()
                 ai_data = response.json()
 
@@ -42,5 +45,6 @@ class PredictVehicleClient:
             raise ValueError("AI Service return success: False")
         except Exception as e:
             error_msg = f"Lỗi gọi AI: {str(e)} \n {traceback.format_exc()}"
+            print("error")
             print(error_msg)  # Để nó hiện lên terminal/log của container
             raise Exception(error_msg)  # Ném lỗi thực sự để Celery biết mà báo FAILED

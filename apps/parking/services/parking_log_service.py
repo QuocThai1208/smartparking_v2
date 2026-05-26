@@ -13,7 +13,7 @@ from ...finance.models import PaymentType
 from ...finance.services.payment_service import PaymentService
 from ...users.models import UserRole, User
 from ..models import ParkingLog, ParkingStatus, Vehicle, FeeRule, FeeType, VehicleFace, Booking, BookingStatus, \
-    ParkingLot
+    ParkingLot, MonthlySubscription, MonthlyStatus
 from django.db.models import Sum, Count
 from datetime import timedelta
 
@@ -267,6 +267,17 @@ class ParkingLogService:
 
         fees_detail = []  # danh sách các chi phí cần thanh toán
         final_amount_to_pay = 0
+
+        subscription = MonthlySubscription.objects.filter(
+            vehicle=v,
+            status=MonthlyStatus.ACTIVE
+        ).first()
+        if subscription and subscription.is_valid:
+            log.final_amount_to_pay = final_amount_to_pay
+            log.save()
+            print("Lưu log thành công.")
+            print("Phương tiện đã đăng ký gói tháng.")
+            return True, log, fees_detail
         if booking:
             print("tìm thấy booking.")
             total_fee = booking.fee

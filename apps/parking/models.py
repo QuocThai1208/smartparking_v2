@@ -27,6 +27,14 @@ class BookingStatus(models.TextChoices):
     EXPIRED = "EXPIRED", "Hết hạn sử dụng"
 
 
+class MonthlyStatus(models.TextChoices):
+    ACTIVE = 'active', 'Đang hoạt động',
+    EXPIRED = 'expired', 'Đã hết hạn',
+    PENDING = 'pending', 'Chờ thanh toán',
+    CANCELLED = 'cancelled', 'Đã hủy',
+    FAILED = 'failed', 'Thanh toán không thành công'
+
+
 class NotificationTypes(models.TextChoices):
     FINANCE = "FINANCE", "Tài chính",
     SYSTEM = "SYSTEM", "Hệ thống",
@@ -148,8 +156,10 @@ class Booking(BaseModel):
 
     status = models.CharField(max_length=10, choices=BookingStatus.choices, default=BookingStatus.PENDING)
 
-    task_id = models.CharField(max_length=255, null=True,blank=True)  # id của task hủy booking nếu khách kh đến đúng hẹn
-    overtime_task_id = models.CharField(max_length=255, null=True, blank=True)# id của task gửi thông báo nếu xe đỗ quá thời gian booking
+    task_id = models.CharField(max_length=255, null=True,
+                               blank=True)  # id của task hủy booking nếu khách kh đến đúng hẹn
+    overtime_task_id = models.CharField(max_length=255, null=True,
+                                        blank=True)  # id của task gửi thông báo nếu xe đỗ quá thời gian booking
 
     def __str__(self):
         return f"Booking {self.vehicle.license_plate} - {self.start_time} - {self.end_time}"
@@ -179,12 +189,12 @@ class ParkingLog(BaseModel):
 
 
 class Notification(BaseModel):
-    user = models.ForeignKey(User,on_delete=models.CASCADE, related_name='notifications')
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='notifications')
     title = models.CharField(max_length=255)
     content = models.TextField()
 
     # Loại thông báo
-    notification_type = models.CharField(max_length=20,choices=NotificationTypes.choices,default='SYSTEM')
+    notification_type = models.CharField(max_length=20, choices=NotificationTypes.choices, default='SYSTEM')
 
     is_read = models.BooleanField(default=False)
 
@@ -193,3 +203,36 @@ class Notification(BaseModel):
 
     def __str__(self):
         return f"{self.user.username} - {self.title}"
+
+
+class SubscriptionPackage(BaseModel):
+    owner = models.ForeignKey(User, on_delete=models.CASCADE, related_name='subscription_packages')
+    parking_lot = models.ForeignKey(ParkingLot, on_delete=models.PROTECT, related_name="packages")
+    package_name = models.CharField(max_length=100, verbose_name="Tên gói cước")
+    vehicle_type = models.CharField(max_length=20, choices=FeeType.choices, verbose_name="Loại xe áp dụng")
+    price = models.DecimalField(max_digits=10, decimal_places=2, verbose_name="Giá gói (VNĐ)")
+
+    def __str__(self):
+        return f"{self.package_name} - {self.price} VNĐ"
+
+
+class MonthlySubscription(BaseModel):
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='subscriptions', verbose_name="Khách hàng")
+    vehicle = models.ForeignKey(Vehicle, on_delete=models.CASCADE, verbose_name="Biển số xe đăng ký")
+    package = models.ForeignKey(SubscriptionPackage, on_delete=models.PROTECT, verbose_name="Gói cước")
+
+    start_date = models.DateField(default=timezone.now, verbose_name="Ngày bắt đầu")
+    end_date = models.DateField(verbose_name="Ngày hết hạn")
+
+    status = models.CharField(max_length=20, choices=MonthlyStatus.choices, default=MonthlyStatus.PENDING, verbose_name="Trạng thái")
+    price = models.DecimalField(max_digits=10, decimal_places=2, verbose_name="Giá gói (VNĐ)")
+    class Meta:
+        ordering = ['-created_date']
+
+    # Hàm nhanh để kiểm tra xem vé tháng này hiện tại có hợp lệ hay không (dùng khi AI đối soát lúc xe vào bãi)
+    @property
+    def is_valid(self):
+        return self.status == 'active' and self.start_date <= timezone.now().date() <= self.end_date
+
+    def __str__(self):
+        return f"{self.user.username} - {self.vehicle.license_plate} ({self.package.package_name})"

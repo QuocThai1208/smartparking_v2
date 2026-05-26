@@ -4,7 +4,7 @@ from django.utils import timezone
 from django.db import transaction
 
 from apps.parking.models import Vehicle, ParkingSlot, Booking, FeeRule, BookingStatus, ParkingStatus, ParkingLog, \
-    FeeType, ParkingLot
+    FeeType, ParkingLot, MonthlySubscription, MonthlyStatus
 from .parking_log_service import ParkingLogService
 from ..task import check_booking_expired, notify_overtime_booking
 from ...finance.models import PaymentType
@@ -20,26 +20,26 @@ class BookingService:
         now = timezone.now()
 
         if start_time >= end_time:
-            raise serializers.ValidationError({"end_time": "Thời gian kết thúc phải sau thời gian bắt đầu."})
+            raise serializers.ValidationError({"detail": "Thời gian kết thúc phải sau thời gian bắt đầu."})
 
         max_booking_time = now + timedelta(minutes=10)
         if start_time > max_booking_time:
             raise serializers.ValidationError({
-                "start_time": f"Chỉ được đặt chỗ trễ nhất đến {max_booking_time.strftime('%H:%M')}"
+                "detail": f"Chỉ được đặt chỗ trễ nhất đến {max_booking_time.strftime('%H:%M')}"
             })
 
         if start_time < (now - timedelta(minutes=2)):
-            raise serializers.ValidationError({"start_time": "Thời gian bắt đầu không được ở quá khứ."})
+            raise serializers.ValidationError({"detail": "Thời gian bắt đầu không được ở quá khứ."})
 
         duration_hours = (end_time - start_time).total_seconds() / 3600
         if duration_hours < 1:
-            raise serializers.ValidationError({"time": "Thời gian thuê tối thiểu là 1 giờ."})
+            raise serializers.ValidationError({"detail": "Thời gian thuê tối thiểu là 1 giờ."})
 
         if user.user_role != UserRole.CUSTOMER:
-            raise serializers.ValidationError({"user": "Chỉ khách hàng mới được đặt vị trí."})
+            raise serializers.ValidationError({"detail": "Chỉ khách hàng mới được đặt vị trí."})
 
         if user != vehicle.user:
-            raise serializers.ValidationError({"vehicle": "Bạn không phải chủ sở hữu phương tiện này."})
+            raise serializers.ValidationError({"detail": "Bạn không phải chủ sở hữu phương tiện này."})
 
         # kiểm tra booking chéo
         if Booking.objects.filter(
@@ -50,7 +50,7 @@ class BookingService:
                 end_time__gte=start_time,
 
         ).exists():
-            raise serializers.ValidationError({"vehicle": f"Xe này hiện đã có lịch đặt chỗ trong khung giờ bạn chon."})
+            raise serializers.ValidationError({"detail": f"Xe này hiện đã có lịch đặt chỗ trong khung giờ bạn chon."})
 
         # kiểm tra sức chứa thực tế
         slot_mapping = {
@@ -72,7 +72,7 @@ class BookingService:
         ).count()
 
         if (current_occupancy + pending_bookings) >= total_slots:
-            raise serializers.ValidationError({"lot": "Bãi xe hiện đã hết suất đỗ khả dụng."})
+            raise serializers.ValidationError({"detail": "Bãi xe hiện đã hết suất đỗ khả dụng."})
 
     @staticmethod
     def create_booking(user: User, vehicle: Vehicle, lot: ParkingLot, start_time, end_time):
@@ -81,6 +81,12 @@ class BookingService:
                                           lot=lot,
                                           start_time=start_time,
                                           end_time=end_time)
+        subscription = MonthlySubscription.objects.filter(
+            vehicle=vehicle,
+            status=MonthlyStatus.ACTIVE
+        ).first()
+        if subscription and subscription.is_valid:
+            raise serializers.ValidationError({"detail": "Phương tiện là thàng viên tháng, không được đặc chỗ trước."})
 
         fee_rule = FeeRule.objects.filter(
             parking_lot=lot,
@@ -89,7 +95,7 @@ class BookingService:
         ).first()
 
         if not fee_rule:
-            raise serializers.ValidationError({"fee": "Bãi xe chưa cấu hình bảng phí cho loại xe này."})
+            raise serializers.ValidationError({"detail": "Bãi xe chưa cấu hình bảng phí cho loại xe này."})
 
         final_fee, _ = ParkingLogService.calculate_fee(fee_rule, start_time, end_time)
 
@@ -128,4 +134,4 @@ class BookingService:
                 booking.save()
                 return booking
             except Exception as e:
-                raise serializers.ValidationError({"system": f"Lỗi hệ thống khi tạo đơn đặt: {str(e)}"})
+                raise serializers.ValidationError({"detail": f"Lỗi hệ thống khi tạo đơn đặt: {str(e)}"})
